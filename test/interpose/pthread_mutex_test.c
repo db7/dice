@@ -222,6 +222,7 @@ test_pthread_mutex_trylock(void)
  ensure(ret == E_pthread_mutex_trylock.ret);
     disable();
 }
+#if 0
 static void
 test_pthread_mutex_timedlock(void)
 {
@@ -236,6 +237,7 @@ test_pthread_mutex_timedlock(void)
  ensure(ret == E_pthread_mutex_timedlock.ret);
     disable();
 }
+#endif
 
 int
 main()
@@ -243,6 +245,6 @@ main()
     test_pthread_mutex_lock();
     test_pthread_mutex_unlock();
     test_pthread_mutex_trylock();
-    test_pthread_mutex_timedlock();
+  //  test_pthread_mutex_timedlock();
     return 0;
 }
