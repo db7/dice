@@ -50,3 +50,4 @@ endforeach()
 
 target_link_libraries(dice-self PRIVATE pthread)
 target_link_libraries(dice-self.o PUBLIC pthread)
+target_link_libraries(dice-cxa PUBLIC stdc++)

@@ -42,6 +42,7 @@ endforeach()
 
 add_library(micro-dice SHARED)
 target_link_libraries(micro-dice PUBLIC ${OBJS} dice-box.o pthread)
+target_link_libraries(micro-dice PRIVATE stdc++)
 if(${ENABLE_SANITIZER})
   target_link_options(micro-dice PRIVATE ${LIBSAN_SHARED})
 endif()

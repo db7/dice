@@ -93,3 +93,5 @@ foreach(MOD ${MODS})
     target_link_libraries(${TARGET} PRIVATE ${LIBSAN_LINK})
   endif()
 endforeach()
+
+target_link_libraries(cxa_test PRIVATE stdc++)
