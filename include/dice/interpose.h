@@ -63,6 +63,7 @@ void *real_sym(const char *, const char *);
     /* On macOS, however, the mechanism uses the interposition attribute and
      * the call to the real function can be done directly. */
     #define REAL(F, ...) F(__VA_ARGS__)
+    #define REALP(F, ...) F(__VA_ARGS__)
 #endif
 
 /* INTERPOSE(T, F, ...) { ... } defines an interposition function for F

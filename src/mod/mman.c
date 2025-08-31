@@ -28,8 +28,9 @@ INTERPOSE(void *, mmap, void *addr, size_t length, int prot, int flags, int fd,
     return ev.ret;
 }
 
-INTERPOSE(void *, mmap64, void *addr, size_t length, int prot, int flags,
-          int fd, off_t offset)
+#if !defined(__APPLE__)
+INTERPOSE(void *, mmap64, void *addr, size_t length, int prot, int flags, int fd,
+          off_t offset)
 {
     struct mmap_event ev = {
         .pc     = INTERPOSE_PC,
@@ -64,6 +65,7 @@ INTERPOSE(int, munmap, void *addr, size_t length)
     PS_PUBLISH(INTERCEPT_AFTER, EVENT_MUNMAP, &ev, &md);
     return ev.ret;
 }
+#endif
 
 /* Advertise event type names for debugging messages */
 PS_ADVERTISE_TYPE(EVENT_MMAP)
