@@ -40,7 +40,7 @@ void
 register_expected_trace(thread_id tid, struct expected_event *trace)
 {
     assert(tid > 0 && tid < MAX_NTHREADS);
-    log_info("register expected trace thread=%lu", tid);
+    log_info("register expected trace thread=%" PRIu64, tid);
     _expected[tid] = (struct thread_trace){.trace = trace, .next = trace};
 }
 
