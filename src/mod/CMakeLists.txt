@@ -22,6 +22,11 @@ foreach(SRC ${SRCS})
   add_library(${TARGET} SHARED ${SRC})
   target_link_libraries(${TARGET} PRIVATE dice dice.h)
   set_target_properties(${TARGET} PROPERTIES PREFIX "")
+  if(APPLE)
+    # Allow unresolved symbols that will be provided by the
+    # sanitizer/runtime at preload time (Annotate*, pthread_*, etc).
+    target_link_options(${TARGET} PRIVATE -undefined dynamic_lookup)
+  endif()
   install(TARGETS ${TARGET} DESTINATION lib/dice)
 
   add_library(${TARGET}.o OBJECT ${SRC})
