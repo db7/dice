@@ -183,13 +183,13 @@ INTERPOSE(int, __libc_start_main, main_f mainf, int argc, char **argv,
                      rtld_fini);
 }
     #endif // defined(__GLIBC__)
+
 #elif defined(__APPLE__)
 
 static inline void
-_check_main_start(void *retpc)
+check_main_start_(void *retpc)
 {
-    // TODO: fix this. here just to stop warnings
-         _main_start();
+    main_start_();
     (void)retpc;
 }
 
