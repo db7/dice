@@ -60,10 +60,15 @@ void *real_sym(const char *, const char *);
     #define REALP(F, ...) REAL_CALL(F, 0, ##__VA_ARGS__)
 
 #elif defined(__APPLE__)
-    /* On macOS, however, the mechanism uses the interposition attribute and
-     * the call to the real function can be done directly. */
-    #define REAL(F, ...) F(__VA_ARGS__)
-    #define REALP(F, ...) F(__VA_ARGS__)
+    /* On macOS, however, the mechanism uses the interposition attribute. For
+     * unit tests we emulate the Linux override so real_sym() can be hooked. */
+    #if defined(DICE_TEST_INTERPOSE)
+        #define REAL(F, ...)  REAL_CALL(F, 0, ##__VA_ARGS__)
+        #define REALP(F, ...) REAL_CALL(F, 0, ##__VA_ARGS__)
+    #else
+        #define REAL(F, ...)  F(__VA_ARGS__)
+        #define REALP(F, ...) F(__VA_ARGS__)
+    #endif
 #endif
 
 /* INTERPOSE(T, F, ...) { ... } defines an interposition function for F
@@ -77,17 +82,28 @@ void *real_sym(const char *, const char *);
 
 #elif defined(__APPLE__)
 
-    #define INTERPOSE(T, F, ...)                                               \
-        T FAKE_NAME(F)(__VA_ARGS__);                                           \
-        static struct {                                                        \
-            const void *fake;                                                  \
-            const void *real;                                                  \
-        } _dice_interpose_##F                                                  \
-            __attribute__((used, section("__DATA,__interpose"))) = {           \
-                (const void *)&FAKE_NAME(F), (const void *)&F};                \
-        T FAKE_NAME(F)(__VA_ARGS__)
+    #if defined(DICE_TEST_INTERPOSE)
 
-    #define FAKE_NAME(F) _dice_fake_##F
+        #define INTERPOSE(T, F, ...)                                           \
+            T F(__VA_ARGS__);                                                  \
+            REAL_DECL(T, F, __VA_ARGS__);                                      \
+            T F(__VA_ARGS__)
+
+    #else
+
+        #define INTERPOSE(T, F, ...)                                           \
+            T FAKE_NAME(F)(__VA_ARGS__);                                       \
+            static struct {                                                    \
+                const void *fake;                                              \
+                const void *real;                                              \
+            } _dice_interpose_##F                                              \
+                __attribute__((used, section("__DATA,__interpose"))) = {       \
+                    (const void *)&FAKE_NAME(F), (const void *)&F};            \
+            T FAKE_NAME(F)(__VA_ARGS__)
+
+        #define FAKE_NAME(F) _dice_fake_##F
+
+    #endif
 
 #endif
 

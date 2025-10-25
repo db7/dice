@@ -10,6 +10,15 @@
 #include <dice/interpose.h>
 #include <dice/log.h>
 
+#if defined(__APPLE__)
+void *
+real_sym(const char *name, const char *ver)
+{
+    (void)ver;
+    return _real_sym(name, ver);
+}
+#endif
+
 #define MAX_EXP 16
 static char *strings[MAX_EXP] = {0};
 static char **head            = &strings[0];

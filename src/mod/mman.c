@@ -49,6 +49,7 @@ INTERPOSE(void *, mmap64, void *addr, size_t length, int prot, int flags, int fd
     PS_PUBLISH(INTERCEPT_AFTER, EVENT_MMAP, &ev, &md);
     return ev.ret;
 }
+#endif
 
 INTERPOSE(int, munmap, void *addr, size_t length)
 {
@@ -65,7 +66,6 @@ INTERPOSE(int, munmap, void *addr, size_t length)
     PS_PUBLISH(INTERCEPT_AFTER, EVENT_MUNMAP, &ev, &md);
     return ev.ret;
 }
-#endif
 
 /* Advertise event type names for debugging messages */
 PS_ADVERTISE_TYPE(EVENT_MMAP)
