@@ -1,4 +1,4 @@
-# Copyright (C) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+# Copyright (C) 2025 Huawei Technologies Co., Ltd.
 # SPDX-License-Identifier: 0BSD
 
 # These tests require preloading, which is tricky when using qemu to emulate
@@ -39,22 +39,23 @@ target_link_libraries(empty_publisher PRIVATE dice.h)
 add_executable(order_test order_test.c)
 target_link_libraries(order_test PRIVATE dice.h empty_publisher)
 
-set(DICESO ${CMAKE_CURRENT_BINARY_DIR}/../../src/dice/libdice.so)
+
+set(DICESO ${CMAKE_CURRENT_BINARY_DIR}/../../src/dice/libdice.${SO})
 
 add_test(
   NAME preload-1-then-2-test
   COMMAND
     env #
-    LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}
-    LD_PRELOAD=${DICESO}:libpublisher.so:libsubscriber1.so:libsubscriber2.so #
+    ${LIBRARY_PATH}=${CMAKE_CURRENT_BINARY_DIR}
+    ${PRELOAD}=${DICESO}:libpublisher.${SO}:libsubscriber1.${SO}:libsubscriber2.${SO} #
     ./order_test 2 202)
 
 add_test(
   NAME preload-2-then-1-test
   COMMAND
     env #
-    LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}
-    LD_PRELOAD=${DICESO}:libpublisher.so:libsubscriber2.so:libsubscriber1.so #
+    ${LIBRARY_PATH}=${CMAKE_CURRENT_BINARY_DIR}
+    ${PRELOAD}=${DICESO}:libpublisher.${SO}:libsubscriber2.${SO}:libsubscriber1.${SO} #
     ./order_test 2 202)
 
 add_library(subscriber12 SHARED)
@@ -66,11 +67,11 @@ target_link_libraries(subscriber21 PRIVATE publisher.o subscriber2.o
                                            subscriber1.o dice)
 
 add_test(NAME preload-12-test
-         COMMAND env LD_LIBRARY_PATH=. LD_PRELOAD=${DICESO}:libsubscriber12.so
+         COMMAND env ${LIBRARY_PATH}=. ${PRELOAD}=${DICESO}:libsubscriber12.${SO}
                  ./order_test 2 202)
 
 add_test(NAME preload-21-test
-         COMMAND env LD_LIBRARY_PATH=. LD_PRELOAD=${DICESO}:libsubscriber21.so
+         COMMAND env ${LIBRARY_PATH}=. ${PRELOAD}=${DICESO}:libsubscriber21.${SO}
                  ./order_test 2 202)
 
 add_library(subscriber21f SHARED)
@@ -78,7 +79,7 @@ target_link_libraries(subscriber21f PRIVATE publisher.o subscriber2.o
                                             subscriber1.o dice.o)
 
 add_test(NAME preload-21f-test
-         COMMAND env LD_LIBRARY_PATH=. LD_PRELOAD=libsubscriber21f.so
+         COMMAND env ${LIBRARY_PATH}=. ${PRELOAD}=libsubscriber21f.${SO}
                  ./order_test 2 202)
 
 add_library(subscriber3.o OBJECT subscriber.c)
@@ -90,5 +91,5 @@ target_link_libraries(subscriber3 PRIVATE subscriber3.o subscriber21f)
 
 add_test(
   NAME preload-3-and-21f-test
-  COMMAND env LD_LIBRARY_PATH=.
-          LD_PRELOAD=libsubscriber3.so:libsubscriber21f.so ./order_test 3 303)
+  COMMAND env ${LIBRARY_PATH}=.
+          ${PRELOAD}=libsubscriber3.${SO}:libsubscriber21f.${SO} ./order_test 3 303)
