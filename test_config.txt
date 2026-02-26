@@ -1,0 +1,27 @@
+# Sample configuration file for module dependency resolution
+
+# Define the chains
+CHAINS+= 	INTERCEPT_BEFORE INTERCEPT_AFTER
+CHAINS+= 	CAPTURE_BEFORE CAPTURE_AFTER
+CHAINS+= 	LOTTO_CHAIN
+
+# Define events for each chain
+EVENTS.INTERCEPT_BEFORE=	1..100
+EVENTS.INTERCEPT_BEFORE+=	EVENT_PTHREAD_JOIN
+EVENTS.INTERCEPT_AFTER=		1..128
+EVENTS.CAPTURE_BEFORE=		1..100
+EVENTS.CAPTURE_AFTER=		1..128
+EVENTS.LOTTO_CHAIN=		130..140
+
+# Define module dependencies for each chain
+[INTERCEPT_*]
+self: filter
+
+[CAPTURE_*]
+self:
+
+[LOTTO_CHAIN]
+foo: bar baz
+baz: self
+bar: self
+foo: far

@@ -1,0 +1,9 @@
+# Test configuration with cycle
+CHAINS+= TEST_CHAIN
+
+EVENTS.TEST_CHAIN= 1..10
+
+[TEST_CHAIN]
+a: b
+b: c
+c: a

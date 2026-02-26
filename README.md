@@ -100,6 +100,14 @@ See examples in the `examples` directory.
 - Benchmark workflow: [doc/benchmarking.md](doc/benchmarking.md).
 - Test layout and commands: [doc/testing.md](doc/testing.md).
 
+## Dispatcher Generator Tool
+
+A C-based command-line tool for generating dispatcher templates in the Dice framework.
+
+The dispatcher generator is built as part of the Dice build system and provides better integration with the system's tmplr library.
+
+For more information, see [README-C-DISPATCHER-GENERATOR.md](README-C-DISPATCHER-GENERATOR.md).
+
 ---
 
 ## License

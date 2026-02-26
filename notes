@@ -1,0 +1,51 @@
+# Now I want to build a second tool to help me create
+# 1- a total order of slots for a set of modules (where each module has subcribers)
+# 2- the minimal set of events for each chain
+# 3- the minimal set of slots for each chain/event
+
+# I want to give as input a file like this one
+
+# There will be a few fixed variables/names, eg, CHAINS
+CHAINS+= 	INTERCEPT_BEFORE INTERCEPT_AFTER
+CHAINS+= 	CAPTURE_BEFORE CAPTURE_AFTER
+CHAINS+= 	LOTTO_CHAIN
+
+
+# Also the EVENTS.<CHAIN>, which tells the event numbers or event names
+EVENTS.INTERCEPT_BEFORE=	1..100
+EVENTS.INTERCEPT_BEFORE+=	EVENT_PTHREAD_JOIN
+EVENTS.INTERCEPT_AFTER=		1..128
+EVENTS.CAPTURE_BEFORE=		1..100
+EVENTS.CAPTURE_AFTER=		1..128
+EVENTS.LOTTO_CHAIN=		130..140
+
+# After we actually have the chains and within each chain section (globber possible),
+# we have the dependency of the modules.
+
+[INTERCEPT_*]
+self: filter
+
+[CAPTURE_*]
+self:
+
+[LOTTO_CHAIN]
+foo: bar baz
+baz: self
+bar: self
+foo: far
+
+
+# Output of program should be multiple
+
+# 1. with a specific flag, I would like to see the tree of dependencies
+# between the modules, ie, the partial order. knowing that the order of the
+# chains added to CHAINS matter too.
+
+
+# 2. with another flag, we should get a list of pairs "modules slot" with
+# slot assignments creating a total order of slots that fits in the dependency
+#graph above.
+
+# 3. A list of "--chain  X --events A,B,C"
+     Plus a list of "--chain  X --event A --slots 1,2,3" (from the total order, or optionally, bar, baz, tap for readability)
+     Plus a list of "--type main --chains X,Y,Z"
