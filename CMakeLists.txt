@@ -15,7 +15,6 @@ project(
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include(GNUInstallDirs)
 include(CheckSymbolExists)
-include(cmake/export.cmake)
 add_compile_options(-Wall -Wextra -Werror)
 
 # POSIX extensions
@@ -79,6 +78,10 @@ endif()
 # memory
 option(DICE_MEMSET "Build Dice with memset wrapper" off)
 option(DICE_MEMPOOL_USE_MMAP "Use mmap for mempool" off)
+
+# Preserve the source-tree build interface while downstream projects migrate.
+# This controls the default build, not installation or target availability.
+option(DICE_BUILD_LEGACY "Build existing runtime and module targets by default" ON)
 
 # Tests and benchmarks
 if(PROJECT_IS_TOP_LEVEL)
@@ -151,4 +154,6 @@ endif()
 # ------------------------------------------------------------------------------
 # Installation
 # ------------------------------------------------------------------------------
-install(TARGETS dice dice.h EXPORT ${PROJECT_TARGETS})
+# The installed product is the generator. Runtime libraries are built by users
+# from dice roll output; legacy targets below remain available for regression
+# tests and for source-tree consumers during migration.

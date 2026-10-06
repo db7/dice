@@ -9,8 +9,10 @@
 
 #include <sys/mman.h>
 
-#define EVENT_MMAP   80
-#define EVENT_MUNMAP 81
+#ifndef DICE_GENERATED_IDS
+    #define EVENT_MMAP   80
+    #define EVENT_MUNMAP 81
+#endif
 
 struct mmap_event {
     const void *pc;

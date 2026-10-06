@@ -22,6 +22,36 @@ running:
 
 ## Benchmark Suites
 
+To compare the working-tree `dice roll` runtime with an unchanged Git revision,
+use the comparison driver (CMake, a C compiler, Bash, and Awk; no Python):
+
+```sh
+bash bench/roll/compare.sh results/roll-comparison build
+bash bench/roll/compare.sh results/roll-comparison micro
+# Optional: requires the existing application suites' cached builds.
+bash bench/roll/applications.sh results/roll-comparison
+awk -f bench/roll/summarize.awk results/roll-comparison/micro.csv \
+    results/roll-comparison/applications.csv > results/roll-comparison/summary.csv
+```
+
+Choose a fresh output directory. `REVISION` selects the original revision
+(default `HEAD`); `REPEATS` and `SECONDS_PER_RUN` control measurements. Both
+runtimes use Release optimization and LTO with route checks disabled. The driver
+preserves benchmark loop/handler bodies, adapts generated-header imports, and
+alternates the original and generated runs after warming both. It explicitly
+loads Self and pthread interception for `micro2`. Use one thread: the existing
+handlers have shared, non-atomic state. The directory contains raw logs, CSVs,
+build flags, original sources, and the generator source snapshot.
+
+The [2026-10-06 comparison](roll-benchmark-20261006.txt) records results for
+generated weak callback fallbacks and strong linked handlers.
+
+The application comparison uses the same cached instrumented binary for both
+runtimes and replaces libtsan with the same libtsano. LevelDB uses a private
+database and `--use_existing_db=1` so `readrandom` preserves its population.
+Scratchapixel is measured in batches of 50 launches because a single run is
+very short; its CSV time is the average per launch, including process startup.
+
 - `micro`: Three synthetic publish loops that stress the hot paths of Pubsub.
   `micro` publishes bare events, `micro2` adds capture handlers and TLS via the
   Self module, and `micro3` links against the `micro-dice` bundle to exercise

@@ -1,0 +1,61 @@
+Dice roll: weak callback fallbacks and strong linked handlers
+2026-10-06
+
+Compared with original f486cf379c038bf441371ba04fcb10c2440b5f2f.
+macOS arm64, AppleClang 21, -O3 -DNDEBUG -fPIC -flto=thin on both sides.
+Route checks disabled. Runs were sequential, without concurrent builds/tests.
+
+Median throughput (iterations/second; higher is better):
+              Original       Generated      Change
+micro         290265939      432677661       +49.06%
+micro2         85894916      110109611       +28.19%
+micro3        159650491      187841067       +17.66%
+micro4        118264616      145090659       +22.68%
+micro5         61420756       78385200       +27.62%
+
+Median application wall time (seconds; lower is better):
+                       Original  Generated    Change
+LevelDB bundle            5.448      5.008     -8.08%
+LevelDB box               4.665      4.606     -1.26%
+Raytracing bundle         3.135      3.114     -0.67%
+Raytracing box            3.070      3.044     -0.85%
+Scratchapixel bundle       .025       .009    -63.66%
+Scratchapixel box          .024       .009    -64.05%
+
+Application changes use unrounded CSV values. Raytracing differences are small
+relative to run variation. Scratchapixel is dominated by process startup.
+These are workload results, not isolated dispatch latency or a scalability test.
+CPU frequency, affinity, and thermal state were not controlled.
+
+Microbenchmarks use one thread, a warmup for each version, and seven alternating
+pairs of three-second runs. Original loop and handler bodies are preserved.
+micro2 exercises a known callback slot in the generated dispatcher; micro3-5
+exercise strong linked overrides. Delivery counts match publication counts.
+
+Applications use identical cached instrumented executables and libtsano, with
+five alternating pairs after warmup. LevelDB reads five million times from a
+populated private database. Scratchapixel averages batches of 50 launches.
+Raytracing and Scratchapixel output hashes match across every compared run.
+
+Compared with the earlier 2026-10-05 generator without weak callback fallbacks,
+generated micro3/4/5 throughput is approximately 11.6%/4.2%/6.7% lower. The new
+version remains faster than the original in these workloads; the flexibility
+of weak overrides has an observable cost in this build.
+
+Validation: cmake --build build-roll -j4 and
+ctest --test-dir build-roll --output-on-failure -j4: all 51 tests passed.
+Coverage includes legacy CMake/object targets, callback/dispatch interleaving,
+preload modules, strong overrides with LTO, exact/wildcard callbacks, stop
+propagation, invalid slots, checked routes, and embedded callback bootstrap.
+
+Local raw artifacts: results/roll-weak-dispatch-20261006/
+Includes configurations, generated sources/binaries, original sources, generator
+snapshot, compiler flags, logs, CSVs, output hashes, and the CTest log.
+Raw build artifacts are deliberately excluded from the commit.
+
+Reproduction (fresh output directory; application suites must already be built):
+REVISION=f486cf3 bash bench/roll/compare.sh results/new-run build
+bash bench/roll/compare.sh results/new-run micro
+bash bench/roll/applications.sh results/new-run
+awk -f bench/roll/summarize.awk results/new-run/micro.csv \
+    results/new-run/applications.csv > results/new-run/summary.csv

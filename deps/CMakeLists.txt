@@ -1,7 +1,15 @@
 # Copyright (C) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 # SPDX-License-Identifier: 0BSD
 
-add_subdirectory(tsano)
+add_library(sxp STATIC sxp/sxp.c)
+target_include_directories(sxp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/sxp)
+target_compile_features(sxp PUBLIC c_std_99)
+add_subdirectory(tsano EXCLUDE_FROM_ALL)
+if(DICE_BUILD_LEGACY)
+  # Preserve the default source-tree artifact without installing tsano as part
+  # of the generator-only distribution.
+  add_custom_target(dice-legacy-deps ALL DEPENDS tsano)
+endif()
 
 set(TMPLR_SRCDIR ${CMAKE_CURRENT_SOURCE_DIR}/tmplr)
 set(TMPLR_BINDIR ${CMAKE_CURRENT_BINARY_DIR}/tmplr)
@@ -26,7 +34,16 @@ add_custom_command(
   WORKING_DIRECTORY ${TMPLR_SRCDIR}
   VERBATIM)
 
+add_custom_target(tmplr-version DEPENDS ${TMPLR_VERSION_H})
+add_library(tmplr-lib STATIC ${TMPLR_SRCDIR}/tmplr.c)
+add_dependencies(tmplr-lib tmplr-version)
+target_compile_definitions(tmplr-lib PRIVATE TMPLR_NO_MAIN)
+target_include_directories(tmplr-lib PUBLIC ${TMPLR_SRCDIR}/include
+                           PRIVATE ${TMPLR_BINDIR})
+set_target_properties(tmplr-lib PROPERTIES OUTPUT_NAME tmplr)
+
 function(dice_configure_tmplr_target)
+  add_dependencies(tmplr tmplr-version)
   target_include_directories(tmplr PRIVATE ${TMPLR_SRCDIR}/include
                                             ${TMPLR_BINDIR})
   set_target_properties(

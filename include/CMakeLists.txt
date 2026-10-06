@@ -15,8 +15,6 @@ target_include_directories(
   dice.h INTERFACE "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>"
                    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 
-install(DIRECTORY dice DESTINATION include)
-
 # Maximum event types
 set(DICE_MAX_TYPES
     128

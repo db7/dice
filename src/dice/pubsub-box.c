@@ -1,5 +1,7 @@
 #include "dice/types.h"
-#include "tweaks.h"
+#ifndef DICE_ROLL_RUNTIME
+    #include "tweaks.h"
+#endif
 #include <dice/pubsub.h>
 
 // -----------------------------------------------------------------------------
@@ -28,6 +30,19 @@ ps_publish(const chain_id chain, const type_id type, void *event,
     return PS_OK;
 }
 
+#ifdef DICE_ROLL_RUNTIME
+/* Generated hooks are registered by the adapter; the trailing phase is sealed.
+ */
+static int
+ps_subscribe_(chain_id chain, type_id type, ps_callback_f cb, int slot)
+{
+    (void)chain;
+    (void)type;
+    (void)cb;
+    (void)slot;
+    return PS_ERROR;
+}
+#else
 DICE_HIDE int
 ps_subscribe(chain_id chain, type_id type, ps_callback_f cb, int slot)
 {
@@ -89,3 +104,4 @@ ps_type_lookup(const char *name)
 {
     return ps_registry_lookup_(false, name);
 }
+#endif /* legacy registration and registry overrides */

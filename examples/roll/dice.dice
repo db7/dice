@@ -1,0 +1,14 @@
+(dice
+  (version 1)
+  (runtime
+    (embed self pthread_create malloc)
+    (plugins true))
+
+  ; Events and chains are inferred from consumes/produces.
+  (slot observer
+    (after dice_self)
+    (consumes (CAPTURE_BEFORE EVENT_MALLOC)))
+
+  (slot preload_observer
+    (plugin true)
+    (consumes (CAPTURE_BEFORE EVENT_MALLOC))))

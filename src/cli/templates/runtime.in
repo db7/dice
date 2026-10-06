@@ -1,0 +1,108 @@
+/* Generated configuration/ABI adapters. Delivery and initialization live in
+ * src/dice/pubsub.c and, for sealed builds, src/dice/pubsub-box.c. */
+#if DICE_CHECK_ROUTES
+static void
+dice_route_error_(const char *direction, int slot, chain_id chain, type_id type)
+{
+    log_fatal("undeclared %s: slot %d, chain %s (%u), event %s (%u)",
+              direction, slot, dice_chain_name_(chain), (unsigned)chain,
+              dice_event_name_(type), (unsigned)type);
+}
+#endif
+
+void
+dice_require_abi(const char *configuration)
+{
+    if (!configuration || strcmp(configuration, DICE_CONFIG_ID))
+        log_fatal("plugin was built with a different generated dice.h");
+}
+
+int
+(ps_subscribe)(chain_id chain, type_id type, ps_callback_f callback, int slot)
+{
+#if DICE_CHECK_ROUTES
+    if (!(DICE_PLUGINS && slot > DICE_LAST_KNOWN_SLOT) &&
+        !dice_consumes_allowed_(slot, chain, type))
+        dice_route_error_("consumes", slot, chain, type);
+#endif
+    if (!dice_chain_valid_(chain) ||
+        (type != ANY_EVENT && !dice_event_valid_(type)) || !callback || slot < 0)
+        return PS_INVALID;
+    if (slot <= DICE_LAST_KNOWN_SLOT)
+        return dice_subscribe_known_(chain, type, callback, slot);
+    return ps_subscribe_(chain, type, callback, slot);
+}
+
+int
+dice_subscribe_abi(const char *configuration, chain_id chain, type_id type,
+                   ps_callback_f callback, int slot)
+{
+    dice_require_abi(configuration);
+    return (ps_subscribe)(chain, type, callback, slot);
+}
+
+enum ps_err
+(ps_publish)(chain_id chain, type_id type, void *event, struct metadata *md)
+{
+#if DICE_CHECK_ROUTES
+    /* Function pointers cannot carry the caller's slot. */
+    dice_route_error_("produces (missing slot context)", -1, chain, type);
+#endif
+    if (unlikely(type == ANY_EVENT || type >= MAX_TYPES || chain >= MAX_CHAINS))
+        return PS_INVALID;
+    return dice_publish_internal_(chain, type, event, md);
+}
+
+#if DICE_CHECK_ROUTES
+enum ps_err
+dice_publish_checked(int slot, chain_id chain, type_id type, void *event,
+                     struct metadata *md)
+{
+    if (!dice_event_valid_(type) || !dice_chain_valid_(chain) ||
+        (!(DICE_PLUGINS && slot > DICE_LAST_KNOWN_SLOT) &&
+         !dice_produces_allowed_(slot, chain, type)))
+        dice_route_error_("produces", slot, chain, type);
+    return dice_publish_internal_(chain, type, event, md);
+}
+#endif
+
+const char *ps_chain_str(chain_id chain) { return dice_chain_name_(chain); }
+const char *ps_type_str(type_id type) { return dice_event_name_(type); }
+
+chain_id
+ps_chain_lookup(const char *name)
+{
+    for (unsigned i = 0; name && i < MAX_CHAINS; ++i)
+        if (dice_chain_valid_(i) && !strcmp(name, dice_chain_name_(i)))
+            return i;
+    return MAX_CHAINS;
+}
+
+type_id
+ps_type_lookup(const char *name)
+{
+    for (unsigned i = 0; name && i < MAX_TYPES; ++i)
+        if ((i == ANY_EVENT || dice_event_valid_(i)) &&
+            !strcmp(name, dice_event_name_(i)))
+            return i;
+    return MAX_TYPES;
+}
+
+void
+ps_register_chain(chain_id id, const char *name)
+{
+    if (!dice_chain_valid_(id) || strcmp(dice_chain_name_(id), name))
+        log_fatal("chain is not declared by the generated configuration");
+}
+
+void
+ps_register_type(type_id id, const char *name)
+{
+    if ((!dice_event_valid_(id) && id != ANY_EVENT) ||
+        strcmp(dice_event_name_(id), name))
+        log_fatal("event is not declared by the generated configuration");
+}
+
+#ifndef DICE_DISABLE_PUBSUB_CTOR_INIT
+static void __attribute__((constructor)) dice_ctor_(void) { ps_init_(); }
+#endif
