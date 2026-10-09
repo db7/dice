@@ -63,6 +63,14 @@ foreach(SRC ${SRCS})
     endif()
 
     add_library(${TARGET}.o OBJECT ${BUILD_SRC})
+    set(ROLLED_OPTIONS ${OPTIONS_${MODULE}})
+    # Only the opt-in generated runtime needs to suppress instrumentation
+    # inherited from another linked target.
+    if("${MODULE}" IN_LIST TSAN_MODULES)
+      list(APPEND ROLLED_OPTIONS -fno-sanitize=all)
+    endif()
+    set_target_properties(${TARGET}.o PROPERTIES
+                          DICE_MODULE_OPTIONS "${ROLLED_OPTIONS}")
     target_link_libraries(${TARGET}.o PRIVATE dice.h)
     target_compile_options(${TARGET}.o PRIVATE)
     target_compile_options(${TARGET}.o PRIVATE ${OPTIONS_${MODULE}})

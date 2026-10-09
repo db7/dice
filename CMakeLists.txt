@@ -76,6 +76,19 @@ if(${DICE_LTO})
   endif()
 endif()
 
+# Build generator tools only for explicit consumers and generator tests. They
+# do not need the runtime's LTO configuration or LLVM archiver.
+function(dice_configure_tool TARGET)
+  set_target_properties(${TARGET} PROPERTIES
+                        EXCLUDE_FROM_ALL ON
+                        INTERPROCEDURAL_OPTIMIZATION OFF)
+  if(DICE_LTO AND CMAKE_SYSTEM_NAME MATCHES "NetBSD" AND
+     CMAKE_C_COMPILER_ID MATCHES "Clang")
+    # NetBSD uses explicit flags above instead of CMake's IPO property.
+    target_compile_options(${TARGET} PRIVATE -fno-lto -fno-fat-lto-objects)
+  endif()
+endfunction()
+
 # memory
 option(DICE_MEMSET "Build Dice with memset wrapper" off)
 option(DICE_MEMPOOL_USE_MMAP "Use mmap for mempool" off)
@@ -132,6 +145,7 @@ add_subdirectory(scripts)
 add_subdirectory(deps)
 add_subdirectory(include)
 add_subdirectory(src)
+include(cmake/roll.cmake)
 
 set(DICE_SCRIPT
     env DICE_BUILD=${PROJECT_BINARY_DIR} DICE_SOURCE=${PROJECT_SOURCE_DIR}
