@@ -3,7 +3,10 @@
 #include "events.h"
 #include <dice/chains/capture.h>
 #include <dice/events/pthread.h>
+#include <dice/module.h>
 #include <dice/pubsub.h>
+
+PS_ADVERTISE_CHAIN(CHAIN_DICE_CONTROL)
 
 STATIC_ASSERT(EVENT_PTHREAD_CREATE == EVENT_THREAD_CREATE, "event alias");
 STATIC_ASSERT(EVENT_THREAD_CREATE == 3 && CAPTURE_EVENT == 4, "stable IDs");
@@ -19,6 +22,7 @@ STATIC_ASSERT(LAST_DISPATCH_SLOT == 3, "CMake dispatch slots");
 int
 main(void)
 {
+    assert(ps_chain_lookup("CHAIN_DICE_CONTROL") == CHAIN_DICE_CONTROL);
     struct compat_event event = {0};
     assert(ps_publish(CHAIN_COMPAT, EVENT_COMPAT, &event, NULL) ==
            PS_STOP_CHAIN);
