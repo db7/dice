@@ -636,40 +636,59 @@ emit_sequence(FILE *out, int chain, int event)
 }
 
 static void
+emit_chain_dispatch(FILE *out, int chain)
+{
+    /* Without noinline, the compiler folds these back into the chain selector
+     * before LTO can specialize publishers with a constant chain. */
+    fprintf(out,
+            "static __attribute__((noinline)) enum ps_err\n"
+            "dice_dispatch_%d_(type_id type, "
+            "void *event, struct metadata *md)\n{\n"
+            "    const chain_id chain = %d;\n"
+            "    enum ps_err err = PS_OK;\n"
+            "    (void)err; (void)type; (void)event; (void)md;\n"
+            "    switch (type) {\n",
+            chain, chain);
+    for (size_t e = 0; e < nids; e++) {
+        if (ids[e].chain || !ids[e].id || !first_id(e))
+            continue;
+        bool exact = false;
+        for (size_t i = 0; i < nsubs; i++)
+            if (subs[i].chain == chain && subs[i].event == ids[e].id)
+                exact = true;
+        if (!exact)
+            continue;
+        fprintf(out, "    case %d:\n", ids[e].id);
+        emit_sequence(out, chain, ids[e].id);
+    }
+    fputs("    default:\n", out);
+    emit_sequence(out, chain, 0);
+    fputs("    }\n}\n", out);
+}
+
+static void
 emit_dispatch(FILE *out)
 {
+    /* Subscriptions are sorted by numeric chain ID, independently of names.
+     * Keep the chain selector small so LTO can specialize constant chains. */
+    for (size_t i = 0; i < nsubs; i++) {
+        if (i && subs[i].chain == subs[i - 1].chain)
+            continue;
+        emit_chain_dispatch(out, subs[i].chain);
+    }
     fputs(
-        "DICE_HIDE enum ps_err\nps_dispatch_(chain_id chain, type_id type, "
-        "void *event, struct metadata *md)\n{\n"
-        "    enum ps_err err = PS_OK;\n"
-        "    (void)err; (void)type; (void)event; (void)md;\n"
+        "DICE_HIDE enum ps_err\n"
+        "ps_dispatch_(chain_id chain, type_id type, void *event, "
+        "struct metadata *md)\n{\n"
+        "    (void)type; (void)event; (void)md;\n"
         "    switch (chain) {\n",
         out);
-    for (size_t c = 0; c < nids; c++) {
-        if (!ids[c].chain || !first_id(c))
+    for (size_t i = 0; i < nsubs; i++) {
+        if (i && subs[i].chain == subs[i - 1].chain)
             continue;
-        bool subscribed = false;
-        for (size_t i = 0; i < nsubs; i++)
-            if (subs[i].chain == ids[c].id)
-                subscribed = true;
-        if (!subscribed)
-            continue;
-        fprintf(out, "    case %d:\n        switch (type) {\n", ids[c].id);
-        for (size_t e = 0; e < nids; e++) {
-            if (ids[e].chain || !ids[e].id || !first_id(e))
-                continue;
-            bool exact = false;
-            for (size_t i = 0; i < nsubs; i++)
-                if (subs[i].chain == ids[c].id && subs[i].event == ids[e].id)
-                    exact = true;
-            if (!exact)
-                continue;
-            fprintf(out, "        case %d:\n", ids[e].id);
-            emit_sequence(out, ids[c].id, ids[e].id);
-        }
-        fputs("        default:\n", out);
-        emit_sequence(out, ids[c].id, 0);
-        fputs("        }\n", out);
+        fprintf(out,
+                "    case %d: return dice_dispatch_%d_(type, event, md);\n",
+                subs[i].chain, subs[i].chain);
     }
     fputs("    default: return PS_OK;\n    }\n}\n", out);
 }

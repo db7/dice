@@ -134,6 +134,14 @@ main(int argc, char **argv)
     assert(ps_subscribe(CHAIN_FLOW, EVENT_TEST, dynamic, SLOT_MIDDLE) ==
            PS_INVALID);
 #endif
+    /* A second, sparse chain must reach only its own handler. */
+    struct trace other = {0};
+    assert(ps_publish(CHAIN_OTHER, EVENT_OTHER, &other, NULL) == PS_OK);
+#if DICE_PLUGINS
+    assert(!strcmp(other.text, strong ? "O" : ""));
+#else
+    assert(!strcmp(other.text, "O"));
+#endif
     /* Stop at every actual handler, including both sides of the phase boundary.
      */
     for (size_t i = 0; expected[i]; i++) {

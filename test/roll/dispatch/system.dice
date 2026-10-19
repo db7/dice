@@ -1,5 +1,7 @@
 (dice (schema 1)
   (runtime (plugins true))
+  ; Numeric order deliberately differs from name order, with unused IDs between.
+  (chains (CHAIN_FLOW 15) (CHAIN_OTHER 7))
   (slot early (number 2)
     (consumes (CHAIN_FLOW EVENT_TEST ANY_EVENT)
               (CHAIN_OTHER EVENT_OTHER)))
