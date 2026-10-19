@@ -289,7 +289,6 @@ bad_config("(dice (schema 1) (prioritize (chains) (chains)))" "duplicate priorit
 bad_config("(dice (schema 1) (prioritize (events) (events)))" "duplicate prioritize field")
 bad_config("(dice (schema 1) (slot monitor (plugin true)))" "unknown slot field plugin")
 bad_config("(dice (schema 1) (slot monitor (callback true)))" "unknown slot field callback")
-bad_config("(dice)" "expected .schema 1.")
 bad_config("(dice (version 1))" "unknown form version")
 bad_config("(dice (schema 2))" "expected integer")
 bad_config("(dice (schema 1) (schema 1))" "duplicate schema")

@@ -31,6 +31,12 @@ struct sxp_error {
  */
 struct sxp *sxp_read(FILE *file, struct sxp_error *error);
 
+/* Parse all expressions through EOF, using the same syntax and limits.
+ * Returns an owned SXP_LIST container whose children are the expressions.
+ * Empty input returns an empty container; NULL indicates a parse failure.
+ */
+struct sxp *sxp_read_all(FILE *file, struct sxp_error *error);
+
 /* Free node, its children and its following siblings. NULL is accepted. */
 void sxp_free(struct sxp *node);
 

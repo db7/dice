@@ -169,8 +169,8 @@ fail:
     return NULL;
 }
 
-struct sxp *
-sxp_read(FILE *file, struct sxp_error *err)
+static struct sxp *
+read_input(FILE *file, struct sxp_error *err, int all)
 {
     if (err)
         *err = (struct sxp_error){0};
@@ -180,15 +180,47 @@ sxp_read(FILE *file, struct sxp_error *err)
         return NULL;
     }
     advance(&r);
-    struct sxp *root = expression(&r, 0);
-    space(&r);
-    if (r.ch != EOF)
-        error(&r, "expected end of file after the root expression");
+    struct sxp *root;
+    if (all) {
+        root = calloc(1, sizeof(*root));
+        if (!root) {
+            error(&r, "out of memory");
+            return NULL;
+        }
+        root->kind        = SXP_LIST;
+        root->line        = 1;
+        struct sxp **tail = &root->child;
+        space(&r);
+        while (!r.failed && r.ch != EOF) {
+            *tail = expression(&r, 0);
+            if (!*tail)
+                break;
+            tail = &(*tail)->next;
+            space(&r);
+        }
+    } else {
+        root = expression(&r, 0);
+        space(&r);
+        if (r.ch != EOF)
+            error(&r, "expected end of file after the root expression");
+    }
     if (r.failed) {
         sxp_free(root);
         return NULL;
     }
     return root;
+}
+
+struct sxp *
+sxp_read(FILE *file, struct sxp_error *err)
+{
+    return read_input(file, err, 0);
+}
+
+struct sxp *
+sxp_read_all(FILE *file, struct sxp_error *err)
+{
+    return read_input(file, err, 1);
 }
 
 void

@@ -29,10 +29,11 @@ function(_dice_source target path slot runtime)
 endfunction()
 
 function(add_dice_core target config)
-  cmake_parse_arguments(PARSE_ARGV 2 CORE "CHECK_ROUTES" "" "")
-  if(CORE_UNPARSED_ARGUMENTS OR NOT config)
+  cmake_parse_arguments(PARSE_ARGV 2 CORE "CHECK_ROUTES" "" "IMPORT_PATHS")
+  if(CORE_UNPARSED_ARGUMENTS OR CORE_KEYWORDS_MISSING_VALUES OR NOT config)
     message(
-      FATAL_ERROR "Usage: add_dice_core(target config.dice [CHECK_ROUTES])")
+      FATAL_ERROR
+        "Usage: add_dice_core(target config.dice [CHECK_ROUTES] [IMPORT_PATHS directory ...])")
   endif()
   if(NOT TARGET "${target}")
     message(FATAL_ERROR "add_dice_core: target '${target}' does not exist")
@@ -65,11 +66,17 @@ function(add_dice_core target config)
   if(CMAKE_CROSSCOMPILING)
     set(generator dice-cli-host)
   endif()
+  set(import_args)
+  foreach(directory IN LISTS CORE_IMPORT_PATHS)
+    get_filename_component(directory "${directory}" ABSOLUTE BASE_DIR
+                           "${CMAKE_CURRENT_SOURCE_DIR}")
+    list(APPEND import_args -I "${directory}")
+  endforeach()
   add_custom_command(
     OUTPUT "${generated}/dice.c" "${header}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${generated}"
-    COMMAND $<TARGET_FILE:${generator}> "${config}" --output "${generated}"
-            --depfile "${generated}/dice.d"
+    COMMAND $<TARGET_FILE:${generator}> ${import_args} "${config}" --output
+            "${generated}" --depfile "${generated}/dice.d"
     DEPENDS ${generator} "${config}"
     DEPFILE "${generated}/dice.d"
     VERBATIM)

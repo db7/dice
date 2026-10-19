@@ -13,16 +13,62 @@
     } while (0)
 
 static struct sxp *
-parse(const char *text, struct sxp_error *error)
+parse_input(const char *text, struct sxp_error *error, int all)
 {
     FILE *file = tmpfile();
     CHECK(file);
     CHECK(fputs(text, file) >= 0);
     rewind(file);
-    struct sxp *root = sxp_read(file, error);
+    struct sxp *root = all ? sxp_read_all(file, error) : sxp_read(file, error);
     CHECK(fseek(file, 0, SEEK_SET) == 0);
     CHECK(fclose(file) == 0);
     return root;
+}
+
+static struct sxp *
+parse(const char *text, struct sxp_error *error)
+{
+    return parse_input(text, error, 0);
+}
+
+static void
+multiple(void)
+{
+    struct sxp_error error;
+    struct sxp *root = parse_input("; start\n(a)\n(b x) ; end", &error, 1);
+    CHECK(root && root->kind == SXP_LIST && !root->next);
+    CHECK(root->child->line == 2 && root->child->next->line == 3);
+    CHECK(!strcmp(root->child->child->text, "a"));
+    CHECK(!strcmp(root->child->next->child->text, "b"));
+    CHECK(!root->child->next->next);
+    CHECK(!error.line && !error.message[0]);
+    sxp_free(root);
+    root = parse_input("; empty\n", &error, 1);
+    CHECK(root && !root->child && !error.line);
+    sxp_free(root);
+    CHECK(!parse_input("(a)\n(b", &error, 1));
+    CHECK(error.line == 2 && strstr(error.message, "unclosed list"));
+    CHECK(!parse_input("(a)\n)", NULL, 1));
+    CHECK(!sxp_read_all(NULL, &error));
+    CHECK(error.line == 1 && strstr(error.message, "input stream"));
+
+    /* The node budget covers the whole file, not each individual form. */
+    FILE *file = tmpfile();
+    CHECK(file);
+    for (unsigned i = 0; i < 65536; i++)
+        CHECK(fputs("x ", file) >= 0);
+    long end = ftell(file);
+    CHECK(end >= 0);
+    rewind(file);
+    root = sxp_read_all(file, &error);
+    CHECK(root && !error.line);
+    sxp_free(root);
+    CHECK(fseek(file, end, SEEK_SET) == 0);
+    CHECK(fputs("x", file) >= 0);
+    rewind(file);
+    CHECK(!sxp_read_all(file, &error));
+    CHECK(strstr(error.message, "size/depth limit"));
+    CHECK(fclose(file) == 0);
 }
 
 static void
@@ -121,6 +167,7 @@ main(void)
     CHECK(error.line == 1 && strstr(error.message, "input stream"));
     CHECK(!sxp_read(NULL, NULL));
     limits();
+    multiple();
 
     /* A failed parse must not prevent later use in the same process. */
     root = parse("\"\"", &error);

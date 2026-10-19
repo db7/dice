@@ -55,6 +55,8 @@ static char config_id[32];
 static const char *input_name;
 static char *input_paths[LIMIT];
 static size_t ninputs;
+static const char *import_paths[LIMIT];
+static size_t nimport_paths;
 static struct source_file {
     const char *name, *path;
     char *data;
@@ -380,17 +382,64 @@ read_priority(const struct sxp *head)
     }
 }
 
+static void read_config(const char *, const char *[], int, bool);
+
 static void
-read_config(const char *path, const char *ancestors[], int depth)
+read_import(const struct sxp *library, const char *ancestors[], int depth)
+{
+    if (library->kind != SXP_LIST || !library->child)
+        fail("line %u: import expects a nonempty library name", library->line);
+    char relative[PATH_MAX] = "";
+    size_t length           = 0;
+    for (const struct sxp *n = library->child; n; n = n->next) {
+        const char *part = atom(n);
+        char checked[NAME_SIZE];
+        name_copy(checked, part);
+        /* Library components are literal file names, not C identifiers. */
+        int added = snprintf(relative + length, sizeof(relative) - length,
+                             "%s%s", length ? "/" : "", part);
+        if (added < 0 || (size_t)added >= sizeof(relative) - length)
+            fail("import path too long");
+        length += (size_t)added;
+    }
+    for (size_t i = 0; i <= nimport_paths; i++) {
+        const char *directory =
+            i < nimport_paths ? import_paths[i] : DICE_SOURCE_DIR "/src";
+        char candidate[PATH_MAX];
+        int len = snprintf(candidate, sizeof(candidate), "%s/%s.dice",
+                           directory, relative);
+        if (len < 0 || (size_t)len >= sizeof(candidate))
+            fail("import path too long");
+        struct stat info;
+        if (stat(candidate, &info)) {
+            if (errno == ENOENT || errno == ENOTDIR)
+                continue;
+            fail("%s: %s", candidate, strerror(errno));
+        }
+        if (!S_ISREG(info.st_mode))
+            fail("import is not a regular file: %s", candidate);
+        read_config(candidate, ancestors, depth + 1, true);
+        return;
+    }
+    fail("line %u: cannot find import %s.dice (use -I DIRECTORY)",
+         library->line, relative);
+}
+
+static void
+read_config(const char *path, const char *ancestors[], int depth, bool once)
 {
     if (depth == 32)
-        fail("configuration includes exceed 32 levels");
+        fail("configuration includes/imports exceed 32 levels");
     char resolved[PATH_MAX];
     if (!realpath(path, resolved))
         fail("%s: %s", path, strerror(errno));
     for (int i = 0; i < depth; i++)
         if (!strcmp(ancestors[i], resolved))
-            fail("include cycle involving %s", resolved);
+            fail("include cycle or import cycle involving %s", resolved);
+    if (once)
+        for (size_t i = 0; i < ninputs; i++)
+            if (!strcmp(input_paths[i], resolved))
+                return;
     ancestors[depth] = resolved;
     if (ninputs == COUNT(input_paths))
         fail("too many configuration inputs");
@@ -401,15 +450,18 @@ read_config(const char *path, const char *ancestors[], int depth)
     if (!file)
         fail("%s: %s", resolved, strerror(errno));
     struct sxp_error error;
-    struct sxp *root = sxp_read(file, &error);
+    struct sxp *root = sxp_read_all(file, &error);
     fclose(file);
     if (!root)
         fail("%s:%u: %s", resolved, error.line, error.message);
-    const struct sxp *head = form(root);
-    if (!symbol(head, "dice"))
-        fail("%s: expected (dice ...) root", resolved);
+    const struct sxp *forms = root->child;
+    if (forms && symbol(form(forms), "dice")) {
+        if (forms->next)
+            fail("%s: expected end of file after (dice ...) wrapper", resolved);
+        forms = form(forms)->next;
+    }
     bool schema = false;
-    for (const struct sxp *n = head->next; n; n = n->next) {
+    for (const struct sxp *n = forms; n; n = n->next) {
         const struct sxp *key = form(n);
         if (symbol(key, "schema")) {
             if (schema)
@@ -424,6 +476,11 @@ read_config(const char *path, const char *ancestors[], int depth)
             read_priority(key);
         } else if (symbol(key, "slot")) {
             read_slot(key);
+        } else if (symbol(key, "import")) {
+            if (!key->next)
+                fail("import requires at least one library name");
+            for (const struct sxp *p = key->next; p; p = p->next)
+                read_import(p, ancestors, depth);
         } else if (symbol(key, "include")) {
             if (!key->next)
                 fail("include requires at least one path");
@@ -440,14 +497,12 @@ read_config(const char *path, const char *ancestors[], int depth)
                                    resolved, p->text);
                 if (len < 0 || (size_t)len >= sizeof(next))
                     fail("include path too long");
-                read_config(next, ancestors, depth + 1);
+                read_config(next, ancestors, depth + 1, false);
             }
         } else {
             fail("%s:%u: unknown form %s", resolved, key->line, key->text);
         }
     }
-    if (!depth && !schema)
-        fail("expected (schema 1)");
     sxp_free(root);
 }
 
@@ -1394,11 +1449,13 @@ static void
 usage(FILE *out)
 {
     fputs(
-        "Usage: dice-roll CONFIG.dice --output DIRECTORY [--name NAME]\n"
-        "                            [--depfile FILE]\n"
-        "       dice-roll --check CONFIG.dice\n"
-        "       dice-roll --query CONFIG.dice\n"
-        "       dice-roll --graph CONFIG.dice\n",
+        "Usage: dice-roll [-I DIRECTORY ...] CONFIG.dice --output DIRECTORY\n"
+        "                 [--name NAME] [--depfile FILE]\n"
+        "       dice-roll [-I DIRECTORY ...] --check CONFIG.dice\n"
+        "       dice-roll [-I DIRECTORY ...] --query CONFIG.dice\n"
+        "       dice-roll [-I DIRECTORY ...] --graph CONFIG.dice\n"
+        "Imports search -I directories in order, then " DICE_SOURCE_DIR
+        "/src.\n",
         out);
 }
 
@@ -1421,46 +1478,49 @@ main(int argc, char **argv)
         usage(stderr);
         return 1;
     }
-    bool query     = !strcmp(argv[1], "--query");
-    bool graph     = !strcmp(argv[1], "--graph");
-    bool check     = !strcmp(argv[1], "--check");
-    bool roll      = !query && !graph && !check;
-    int config_arg = roll ? 1 : 2;
-    if ((!roll && argc != 3) || argv[config_arg][0] == '-') {
-        usage(stderr);
-        return 1;
-    }
+    enum { ROLL, CHECK, QUERY, GRAPH } mode = ROLL;
+    const char *config                      = NULL;
     const char *directory = NULL, *name = NULL, *depfile = NULL;
-    if (roll) {
-        for (int i = config_arg + 1; i < argc; i++) {
-            if ((!strcmp(argv[i], "--output") || !strcmp(argv[i], "-o")) &&
-                !directory && i + 1 < argc) {
-                directory = argv[++i];
-            } else if (!strcmp(argv[i], "--name") && !name && i + 1 < argc) {
-                name = argv[++i];
-            } else if (!strcmp(argv[i], "--depfile") && !depfile &&
-                       i + 1 < argc) {
-                depfile = argv[++i];
-            } else {
-                usage(stderr);
-                return 1;
-            }
-        }
-        if (!directory) {
+    for (int i = 1; i < argc; i++) {
+        if ((!strcmp(argv[i], "--check") || !strcmp(argv[i], "--query") ||
+             !strcmp(argv[i], "--graph")) &&
+            mode == ROLL) {
+            mode = !strcmp(argv[i], "--check") ? CHECK :
+                   !strcmp(argv[i], "--query") ? QUERY :
+                                                 GRAPH;
+        } else if (!strncmp(argv[i], "-I", 2) && (argv[i][2] || i + 1 < argc)) {
+            const char *path = argv[i][2] ? argv[i] + 2 : argv[++i];
+            if (!*path || nimport_paths == COUNT(import_paths))
+                fail("invalid or too many import search paths");
+            import_paths[nimport_paths++] = path;
+        } else if ((!strcmp(argv[i], "--output") || !strcmp(argv[i], "-o")) &&
+                   !directory && i + 1 < argc) {
+            directory = argv[++i];
+        } else if (!strcmp(argv[i], "--name") && !name && i + 1 < argc) {
+            name = argv[++i];
+        } else if (!strcmp(argv[i], "--depfile") && !depfile && i + 1 < argc) {
+            depfile = argv[++i];
+        } else if (argv[i][0] != '-' && !config) {
+            config = argv[i];
+        } else {
             usage(stderr);
             return 1;
         }
     }
-    input_name = argv[config_arg];
+    if (!config || (mode == ROLL ? !directory : directory || name || depfile)) {
+        usage(stderr);
+        return 1;
+    }
+    input_name = config;
     for (size_t i = 0; i < COUNT(standard_ids); i++)
         add_id(standard_ids[i].name, standard_ids[i].id, standard_ids[i].chain,
                true);
     const char *ancestors[32];
-    read_config(input_name, ancestors, 0);
+    read_config(input_name, ancestors, 0, false);
     resolve();
-    if (roll)
+    if (mode == ROLL)
         generate(directory, name ? name : "dice", depfile);
-    else if (query) {
+    else if (mode == QUERY) {
         printf("configuration %s\nplugins %s\n", config_id,
                plugins ? "true" : "false");
         for (size_t k = 0; k < 2; k++) {
@@ -1486,7 +1546,7 @@ main(int argc, char **argv)
         for (size_t i = 0; i < nprods; i++)
             printf("produces %s %d/%d\n", prods[i].slot_name, prods[i].chain,
                    prods[i].event);
-    } else if (graph) {
+    } else if (mode == GRAPH) {
         puts("digraph dice {");
         for (size_t i = 0; i < nslots; i++) {
             printf("  \"slot:%s\" [label=\"%s (%d)\"];\n", slots[i].name,

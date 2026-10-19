@@ -12,14 +12,16 @@ endfunction()
 
 set(root "${WORK}/cmake-consumer")
 set(build "${root}/build")
-file(MAKE_DIRECTORY "${root}/nested")
+file(MAKE_DIRECTORY "${root}/import path/app" "${root}/import path/mod")
 file(COPY "${FIXTURES}/cmake/" DESTINATION "${root}")
 file(COPY "${SOURCE}/examples/roll/interceptors.dice" DESTINATION "${root}")
+file(COPY "${SOURCE}/src/mod/self.dice" DESTINATION "${root}/import path/mod")
 file(
   WRITE "${root}/foo.dice"
   [=[
-(dice (schema 1) (runtime (plugins true))
-  (include "interceptors.dice" "nested/observer-routes.dice"))
+(runtime (plugins true))
+(include "interceptors.dice")
+(import (app observer-routes))
 ]=])
 set(routes
     [=[
@@ -29,8 +31,8 @@ set(routes
     (consumes (CAPTURE_BEFORE EVENT_MALLOC)
               (CAPTURE_EVENT EVENT_THREAD_START EVENT_THREAD_EXIT))))
 ]=])
-file(WRITE "${root}/nested/observer-routes.dice" "${routes}")
-file(WRITE "${root}/nested/types-ids.dice"
+file(WRITE "${root}/import path/app/observer-routes.dice" "${routes}")
+file(WRITE "${root}/import path/app/types-ids.dice"
      "(dice (schema 1) (events (EVENT_USER 200)))\n")
 file(
   WRITE "${root}/bar.dice"
@@ -80,8 +82,8 @@ if(NOT now STREQUAL foo_time)
   message(FATAL_ERROR "Unchanged configuration was regenerated")
 endif()
 
-# A transitive include must regenerate foo.
-file(WRITE "${root}/nested/types-ids.dice"
+# An include inside an imported library must regenerate foo.
+file(WRITE "${root}/import path/app/types-ids.dice"
      "(dice (schema 1) (events (EVENT_USER 201)))\n")
 run("${CMAKE_COMMAND}" --build "${build}" -j 4)
 run("${build}/foo-app" 32 201)
@@ -93,22 +95,21 @@ endif()
 # Change the include graph itself, then edit the newly introduced dependency.
 run("${CMAKE_COMMAND}" -E sleep 1)
 string(REPLACE "types-ids.dice" "new-types.dice" routes "${routes}")
-file(WRITE "${root}/nested/observer-routes.dice" "${routes}")
-file(WRITE "${root}/nested/new-types.dice"
+file(WRITE "${root}/import path/app/observer-routes.dice" "${routes}")
+file(WRITE "${root}/import path/app/new-types.dice"
      "(dice (schema 1) (events (EVENT_USER 202)))\n")
 run("${CMAKE_COMMAND}" --build "${build}" -j 4)
 run("${build}/foo-app" 32 202)
 run("${CMAKE_COMMAND}" -E sleep 1)
-file(WRITE "${root}/nested/new-types.dice"
+file(WRITE "${root}/import path/app/new-types.dice"
      "(dice (schema 1) (events (EVENT_USER 203)))\n")
 string(REPLACE "(number 32)" "(number 33)" routes "${routes}")
-file(WRITE "${root}/nested/observer-routes.dice" "${routes}")
+file(WRITE "${root}/import path/app/observer-routes.dice" "${routes}")
 
 # Moving a built-in slot must also rebuild the interceptor implementation.
-file(READ "${root}/interceptors.dice" interceptors)
-string(REPLACE "(slot dice-self" "(slot dice-self (number 7)" interceptors
-               "${interceptors}")
-file(WRITE "${root}/interceptors.dice" "${interceptors}")
+file(READ "${root}/import path/mod/self.dice" self)
+string(REPLACE "(slot dice-self" "(slot dice-self (number 7)" self "${self}")
+file(WRITE "${root}/import path/mod/self.dice" "${self}")
 run("${CMAKE_COMMAND}" --build "${build}" -j 4)
 run("${build}/foo-app" 33 203)
 run("${build}/bar-app" 64 400)

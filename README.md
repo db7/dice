@@ -113,7 +113,8 @@ build/src/cli/dice-roll examples/roll/dice.dice --output generated
 Use `--name dispatcher` to produce `dispatcher.c` and `dispatcher.h` instead.
 Names may contain 1–127 letters, digits, underscores or hyphens. This changes
 filenames; C symbols and the API remain the same. Use `--depfile FILE` to
-record configuration dependencies, including nested includes, in Make format.
+record configuration dependencies, including nested imports and includes, in
+Make format.
 The generator requires the source checkout and reads its templates and LICENSE
 directly. It is not installed; import the repository with `add_subdirectory`
 to use the CMake helpers.
@@ -203,30 +204,57 @@ into migrated targets, since it supplies legacy capacity definitions.
 
 ## Configuration
 
-The input is a declarative S-expression with a required `(schema 1)`:
+The input is a sequence of declarative S-expressions:
 
 ```scheme
-(dice
-  (schema 1)
-  (include "interceptors.dice")
-  (runtime
-    (plugins true)
-    (mempool-size 209715200))
+(import (mod self) (mod malloc))
+(runtime
+  (plugins true)
+  (mempool-size 209715200))
 
-  (slot capture
-    (after dice-self)
-    (before process)
-    (consumes (CAPTURE_BEFORE EVENT_MALLOC))
-    (produces (CHAIN_APPLICATION EVENT_REQUEST)))
+(slot capture
+  (after dice-self)
+  (before process)
+  (consumes (CAPTURE_BEFORE EVENT_MALLOC))
+  (produces (CHAIN_APPLICATION EVENT_REQUEST)))
 
-  (slot process
-    (consumes (CHAIN_APPLICATION EVENT_REQUEST))
-    (produces (CHAIN_RESULTS EVENT_RESPONSE))))
+(slot process
+  (consumes (CHAIN_APPLICATION EVENT_REQUEST))
+  (produces (CHAIN_RESULTS EVENT_RESPONSE)))
 ```
+
+Library names follow the directory layout: `(import (mod self))` loads
+`mod/self.dice` from a search root. Dice's `src/` is the default root, so the
+built-in definitions live beside their implementations in `src/mod/*.dice`.
+Add roots with repeatable `-I DIRECTORY` or `-IDIRECTORY` options in any CLI mode;
+they are searched in command-line order before Dice's default root. Relative
+roots are resolved from the working directory. For example:
+
+```sh
+dice-roll -I /path/to/coldtrace/src coldtrace.dice -o generated
+```
+
+With this root, `(import (dice subs_tsan))` loads
+`/path/to/coldtrace/src/dice/subs_tsan.dice`. Library components use their literal
+directory/file spelling; each must be an identifier, without slashes or `..`.
+The `.dice` extension is supplied by the loader. These files contain the same
+configuration forms as the application. Importing declarations does not compile
+their C sources: select those separately with `add_dice_mods` or your build system.
+
+Imports are processed in place and each resolved file is loaded once, including
+through diamond imports or symlink aliases. Cycles are rejected. Use
+`(include "local.dice")` for textual inclusion relative to the containing file;
+includes can be repeated. Put application priorities after imports to override
+library defaults. A repeated import does not reapply an already loaded policy.
+
+With CMake, pass `IMPORT_PATHS directory ...` to `add_dice_core`. Relative roots
+are resolved against `CMAKE_CURRENT_SOURCE_DIR`, and imported files participate
+in dependency tracking. Existing `(dice ...)` wrappers remain accepted when they
+are the file's only top-level form. `(schema 1)` is optional in either style.
 
 Events and chains are inferred from every `consumes` and `produces` endpoint.
 Their declarations are optional: use `(events (EVENT_RESPONSE 200))` or
-`(chains (CHAIN_RESULTS 12))` inside `dice` to pin IDs, or `(events EVENT_UNUSED)`
+`(chains (CHAIN_RESULTS 12))` to pin IDs, or `(events EVENT_UNUSED)`
 to declare an otherwise unused name. An endpoint can list multiple event types:
 `(consumes (CHAIN_APPLICATION EVENT_REQUEST EVENT_RESPONSE))`.
 
