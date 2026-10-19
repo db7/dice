@@ -41,6 +41,13 @@ static struct dependency {
 } deps[LIMIT];
 static bool edges[SLOT_LIMIT][SLOT_LIMIT];
 static size_t nids, nsubs, nprods, nslots, ndeps;
+static struct priority {
+    char names[LIMIT][NAME_SIZE];
+    int ids[LIMIT];
+    size_t count;
+    bool seen;
+} chain_priority, event_priority;
+static bool event_first;
 static int last_known_slot;
 static bool plugins          = true, runtime_seen;
 static uint64_t mempool_size = 200 * 1024 * 1024;
@@ -340,6 +347,40 @@ read_runtime(const struct sxp *args)
 }
 
 static void
+read_priority(const struct sxp *head)
+{
+    /* The last form replaces the entire policy, including across includes. */
+    chain_priority.count = 0;
+    chain_priority.seen  = false;
+    event_priority.count = 0;
+    event_priority.seen  = false;
+    event_first          = false;
+    if (!head->next)
+        fail("prioritize requires chains or events");
+    for (const struct sxp *field = head->next; field; field = field->next) {
+        const struct sxp *key = form(field);
+        if (field == head->next)
+            event_first = symbol(key, "events");
+        struct priority *p;
+        if (symbol(key, "chains"))
+            p = &chain_priority;
+        else if (symbol(key, "events"))
+            p = &event_priority;
+        else
+            fail("line %u: unknown prioritize field %s", key->line, key->text);
+        if (p->seen)
+            fail("line %u: duplicate prioritize field %s", key->line,
+                 key->text);
+        p->seen = true;
+        for (const struct sxp *n = key->next; n; n = n->next) {
+            if (p->count == LIMIT)
+                fail("too many prioritized identifiers (limit %d)", LIMIT);
+            name_copy(p->names[p->count++], atom(n));
+        }
+    }
+}
+
+static void
 read_config(const char *path, const char *ancestors[], int depth)
 {
     if (depth == 32)
@@ -379,6 +420,8 @@ read_config(const char *path, const char *ancestors[], int depth)
             read_ids(key->next, symbol(key, "chains"));
         } else if (symbol(key, "runtime")) {
             read_runtime(key->next);
+        } else if (symbol(key, "prioritize")) {
+            read_priority(key);
         } else if (symbol(key, "slot")) {
             read_slot(key);
         } else if (symbol(key, "include")) {
@@ -528,6 +571,30 @@ resolve(void)
     prepare_slots();
     resolve_routes(subs, nsubs, false);
     resolve_routes(prods, nprods, true);
+    if (!chain_priority.seen) {
+        const int defaults[] = {1, 4, 2, 3, 5, 6, 0};
+        memcpy(chain_priority.ids, defaults, sizeof(defaults));
+        chain_priority.count = COUNT(defaults);
+    }
+    struct priority *priorities[] = {&chain_priority, &event_priority};
+    for (size_t k = 0; k < COUNT(priorities); k++) {
+        struct priority *p = priorities[k];
+        if (!p->seen)
+            continue;
+        const char *kind = k == 0 ? "chain" : "event";
+        for (size_t i = 0; i < p->count; i++) {
+            struct identifier *id = find_id(p->names[i], k == 0);
+            if (!id)
+                fail("unknown prioritized %s: %s", kind, p->names[i]);
+            if (k == 1 && !id->id)
+                fail("ANY_EVENT is a wildcard, not a publishable event");
+            p->ids[i] = id->id;
+            for (size_t j = 0; j < i; j++)
+                if (p->ids[j] == id->id)
+                    fail("duplicate prioritized %s: %s", kind, p->names[i]);
+        }
+    }
+    /* Priority only changes code layout, not the runtime/plugin ABI. */
     uint64_t hash = UINT64_C(14695981039346656037);
     for (size_t i = 0; i < COUNT(sources); i++)
         hash = hash_string(hash, source_text(sources[i].name));
@@ -635,22 +702,28 @@ emit_sequence(FILE *out, int chain, int event)
     fputs("        return PS_OK;\n", out);
 }
 
-static void
-emit_chain_dispatch(FILE *out, int chain)
+static bool
+prioritized(const struct priority *p, int id)
 {
-    /* Without noinline, the compiler folds these back into the chain selector
-     * before LTO can specialize publishers with a constant chain. */
+    for (size_t i = 0; i < p->count; i++)
+        if (p->ids[i] == id)
+            return true;
+    return false;
+}
+
+static void
+emit_chain_body(FILE *out, int chain, bool remaining)
+{
     fprintf(out,
-            "static __attribute__((noinline)) enum ps_err\n"
-            "dice_dispatch_%d_(type_id type, "
-            "void *event, struct metadata *md)\n{\n"
             "    const chain_id chain = %d;\n"
             "    enum ps_err err = PS_OK;\n"
             "    (void)err; (void)type; (void)event; (void)md;\n"
             "    switch (type) {\n",
-            chain, chain);
+            chain);
     for (size_t e = 0; e < nids; e++) {
         if (ids[e].chain || !ids[e].id || !first_id(e))
+            continue;
+        if (remaining && prioritized(&event_priority, ids[e].id))
             continue;
         bool exact = false;
         for (size_t i = 0; i < nsubs; i++)
@@ -663,34 +736,153 @@ emit_chain_dispatch(FILE *out, int chain)
     }
     fputs("    default:\n", out);
     emit_sequence(out, chain, 0);
-    fputs("    }\n}\n", out);
+    fputs("    }\n", out);
+}
+
+static bool
+consumes_event(int chain, int event)
+{
+    for (size_t i = 0; i < nsubs; i++)
+        if (subs[i].chain == chain &&
+            (!subs[i].event || subs[i].event == event))
+            return true;
+    return false;
+}
+
+static bool
+priority_event_used(int event)
+{
+    for (size_t i = 0; i < chain_priority.count; i++)
+        if (consumes_event(chain_priority.ids[i], event))
+            return true;
+    return false;
+}
+
+static void
+emit_priority_events(FILE *out, int chain)
+{
+    fprintf(out,
+            "    const chain_id chain = %d;\n"
+            "    enum ps_err err = PS_OK;\n"
+            "    (void)err;\n",
+            chain);
+    for (size_t e = 0; e < event_priority.count; e++) {
+        int event = event_priority.ids[e];
+        if (!consumes_event(chain, event))
+            continue;
+        fprintf(out, "    if (likely(type == %d)) {\n", event);
+        emit_sequence(out, chain, event);
+        fputs("    }\n", out);
+    }
+    fputs("    return dice_dispatch_other_(chain, type, event, md);\n", out);
+}
+
+static void
+emit_event_dispatch(FILE *out, int event)
+{
+    fprintf(out,
+            "static enum ps_err\n"
+            "dice_dispatch_event_%d_(chain_id chain, void *event, "
+            "struct metadata *md)\n{\n"
+            "    const type_id type = %d;\n"
+            "    enum ps_err err = PS_OK;\n"
+            "    (void)err;\n",
+            event, event);
+    for (size_t i = 0; i < chain_priority.count; i++) {
+        int chain = chain_priority.ids[i];
+        if (!consumes_event(chain, event))
+            continue;
+        fprintf(out, "    if (likely(chain == %d)) {\n", chain);
+        emit_sequence(out, chain, event);
+        fputs("    }\n", out);
+    }
+    fputs("    return dice_dispatch_other_(chain, type, event, md);\n}\n", out);
 }
 
 static void
 emit_dispatch(FILE *out)
 {
-    /* Subscriptions are sorted by numeric chain ID, independently of names.
-     * Keep the chain selector small so LTO can specialize constant chains. */
+    /* Separate preferred paths from the shared fallback, and let the compiler
+     * decide which calls to inline. */
+    bool fallback = event_priority.seen && nsubs;
     for (size_t i = 0; i < nsubs; i++) {
-        if (i && subs[i].chain == subs[i - 1].chain)
-            continue;
-        emit_chain_dispatch(out, subs[i].chain);
+        if (!prioritized(&chain_priority, subs[i].chain))
+            fallback = true;
+    }
+    if (fallback) {
+        fputs(
+            "static enum ps_err\n"
+            "dice_dispatch_other_(chain_id chain, type_id type, void *event, "
+            "struct metadata *md)\n{\n"
+            "    switch (chain) {\n",
+            out);
+        for (size_t i = 0; i < nsubs; i++) {
+            bool preferred = prioritized(&chain_priority, subs[i].chain);
+            if ((preferred && !event_priority.seen) ||
+                (i && subs[i].chain == subs[i - 1].chain))
+                continue;
+            fprintf(out, "    case %d: {\n", subs[i].chain);
+            emit_chain_body(out, subs[i].chain, preferred);
+            fputs("    }\n", out);
+        }
+        fputs("    default: return PS_OK;\n    }\n}\n", out);
+    }
+    if (event_first) {
+        for (size_t e = 0; e < event_priority.count; e++)
+            if (priority_event_used(event_priority.ids[e]))
+                emit_event_dispatch(out, event_priority.ids[e]);
+    } else {
+        for (size_t i = 0; i < nsubs; i++) {
+            if (!prioritized(&chain_priority, subs[i].chain) ||
+                (i && subs[i].chain == subs[i - 1].chain))
+                continue;
+            fprintf(out,
+                    "static enum ps_err\n"
+                    "dice_dispatch_%d_(type_id type, void *event, "
+                    "struct metadata *md)\n{\n",
+                    subs[i].chain);
+            if (event_priority.seen)
+                emit_priority_events(out, subs[i].chain);
+            else
+                emit_chain_body(out, subs[i].chain, false);
+            fputs("}\n", out);
+        }
     }
     fputs(
         "DICE_HIDE enum ps_err\n"
         "ps_dispatch_(chain_id chain, type_id type, void *event, "
         "struct metadata *md)\n{\n"
-        "    (void)type; (void)event; (void)md;\n"
-        "    switch (chain) {\n",
+        "    (void)chain; (void)type; (void)event; (void)md;\n",
         out);
-    for (size_t i = 0; i < nsubs; i++) {
-        if (i && subs[i].chain == subs[i - 1].chain)
-            continue;
-        fprintf(out,
-                "    case %d: return dice_dispatch_%d_(type, event, md);\n",
-                subs[i].chain, subs[i].chain);
+    if (event_first) {
+        for (size_t e = 0; e < event_priority.count; e++) {
+            if (!priority_event_used(event_priority.ids[e]))
+                continue;
+            fprintf(
+                out,
+                "    if (likely(type == %d))\n"
+                "        return dice_dispatch_event_%d_(chain, event, md);\n",
+                event_priority.ids[e], event_priority.ids[e]);
+        }
+    } else {
+        for (size_t p = 0; p < chain_priority.count; p++) {
+            for (size_t i = 0; i < nsubs; i++) {
+                if (subs[i].chain != chain_priority.ids[p])
+                    continue;
+                fprintf(out,
+                        "    if (likely(chain == %d))\n"
+                        "        return dice_dispatch_%d_(type, event, md);\n",
+                        subs[i].chain, subs[i].chain);
+                break;
+            }
+        }
     }
-    fputs("    default: return PS_OK;\n    }\n}\n", out);
+    if (fallback)
+        fputs("    return dice_dispatch_other_(chain, type, event, md);\n",
+              out);
+    else
+        fputs("    return PS_OK;\n", out);
+    fputs("}\n", out);
 }
 
 static void
@@ -1271,6 +1463,17 @@ main(int argc, char **argv)
     else if (query) {
         printf("configuration %s\nplugins %s\n", config_id,
                plugins ? "true" : "false");
+        for (size_t k = 0; k < 2; k++) {
+            bool chain = event_first ? k == 1 : k == 0;
+            const struct priority *p =
+                chain ? &chain_priority : &event_priority;
+            if (!chain && !p->seen)
+                continue;
+            printf("prioritize %s", chain ? "chains" : "events");
+            for (size_t i = 0; i < p->count; i++)
+                printf(" %d", p->ids[i]);
+            putchar('\n');
+        }
         for (size_t i = 0; i < nids; i++)
             printf("%s %s %d\n", ids[i].chain ? "chain" : "event", ids[i].name,
                    ids[i].id);

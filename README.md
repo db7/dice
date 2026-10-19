@@ -243,6 +243,53 @@ declaration, and zero is reserved: these names cannot be reassigned or used by
 custom IDs. Legacy builds also define `CHAIN_CONTROL` as an alias for
 `CHAIN_DICE_CONTROL`.
 
+Use `prioritize` to select the chains and events checked first in generated
+dispatch code:
+
+```scheme
+(prioritize
+  (chains INTERCEPT_EVENT CAPTURE_EVENT)
+  (events EVENT_MA_READ EVENT_MA_WRITE))
+```
+
+The order of the fields determines the branching order. The example above checks
+chains first, then events within each preferred chain. To check hot events first,
+put `events` first:
+
+```scheme
+(prioritize
+  (events EVENT_MA_READ EVENT_MA_WRITE)
+  (chains INTERCEPT_EVENT CAPTURE_EVENT INTERCEPT_BEFORE CAPTURE_BEFORE))
+```
+
+This checks events first, then chains within each preferred event. Each list is
+checked in its given order. Reordering the fields with the same lists prioritizes
+the same chain/event pairs. All unmatched routes share one fallback function
+containing chain/event switches. Wildcard subscribers participate in each
+hot-event path, with exact subscriptions taking precedence at the same slot.
+The compiler decides whether to inline either path and remains free to transform
+the emitted comparisons. Handler slot order, wildcard matching, callback
+delivery, and early termination are unchanged.
+
+Both fields are optional. Without `chains`, the preferred order is the legacy
+builtin order `1, 4, 2, 3, 5, 6, 0`. Without `events`, preferred chains retain
+their complete event dispatchers. A form containing only `events` checks events
+first, using the default chain priorities within them. An explicit empty list
+puts all routes into the fallback. A known name without a consumer does not create
+a handler or a dispatch case.
+
+Only list the chains and events to prioritize; the lists need not be exhaustive.
+The last `prioritize` form encountered replaces the entire earlier form,
+including across includes. Omitted fields return to their defaults rather than
+inherit earlier values. Place application overrides after the relevant includes.
+Each field may appear only once within a form; repeated event or chain stages
+are not supported. `--query` lists the priorities in branching order.
+
+Names must already belong to the resolved chain/event universe; this form does
+not declare them. Duplicate names (including aliases), unknown names, and
+`ANY_EVENT` as an event priority are rejected. Priorities do not change IDs or
+the plugin ABI.
+
 Slots receive unique positive numbers satisfying `before` and `after` constraints.
 Add `(number 32)` to pin a slot. Dependency cycles, duplicate numbers, and forced
 numbers that cannot satisfy the order abort generation without replacing existing
