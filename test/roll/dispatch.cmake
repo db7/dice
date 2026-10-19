@@ -33,6 +33,8 @@ else()
 endif()
 set(lib "${out}/runtime${suffix}")
 set(mod "${out}/plugin${suffix}")
+set(duplicate_mod "${out}/duplicate${suffix}")
+set(duplicate_second "${out}/duplicate-second${suffix}")
 set(app "${out}/app")
 foreach(plugins true false)
   string(REPLACE "(plugins true)" "(plugins ${plugins})" input "${config}")
@@ -63,6 +65,12 @@ foreach(plugins true false)
       endif()
       run("${CC}" ${build_flags} ${shared} ${plugin_flags}
           "${FIXTURES}/dispatch/plugin.c" -o "${mod}")
+      if(plugins)
+        run("${CC}" ${build_flags} ${shared} ${plugin_flags}
+            "${FIXTURES}/dispatch/duplicate.c" -o "${duplicate_mod}")
+        run("${CC}" ${build_flags} ${shared} ${plugin_flags}
+            "${FIXTURES}/dispatch/duplicate.c" -o "${duplicate_second}")
+      endif()
       foreach(strong 0 1)
         if(NOT plugins AND NOT strong)
           continue()
@@ -78,8 +86,21 @@ foreach(plugins true false)
         run("${CMAKE_COMMAND}" -E env ${env_args} "${app}")
         if(plugins)
           run("${CMAKE_COMMAND}" -E env ${env_args} "${app}" wildcard)
+          run("${CMAKE_COMMAND}" -E env ${env_args} "${app}" duplicates)
+          run("${CMAKE_COMMAND}" -E env ${env_args} "${app}" extensions)
           run("${CMAKE_COMMAND}" -E env ${env_args} WITH_PLUGIN=1
               "${preload}=${lib}:${mod}" "${app}")
+          # Both constructor orders must reject a second callback. Linked
+          # handlers must reject callbacks before any publication as well.
+          if(strong)
+            expect_failure("could not subscribe plugin" "${CMAKE_COMMAND}" -E env
+                ${env_args} "${preload}=${lib}:${duplicate_mod}" "${app}")
+          else()
+            expect_failure("could not subscribe plugin" "${CMAKE_COMMAND}" -E env
+                ${env_args} "${preload}=${lib}:${duplicate_mod}:${duplicate_second}" "${app}")
+            expect_failure("could not subscribe plugin" "${CMAKE_COMMAND}" -E env
+                ${env_args} "${preload}=${lib}:${duplicate_second}:${duplicate_mod}" "${app}")
+          endif()
         else()
           expect_failure("subscribe" "${CMAKE_COMMAND}" -E env ${env_args}
               WITH_PLUGIN=1 "${preload}=${lib}:${mod}" "${app}")
@@ -95,4 +116,4 @@ foreach(plugins true false)
     endforeach()
   endforeach()
 endforeach()
-message(STATUS "weak callback fallback, strong override, both pubsub phases and LTO passed")
+message(STATUS "declared-slot uniqueness, callback fallbacks, both pubsub phases and LTO passed")

@@ -9,6 +9,7 @@ PS_SUBSCRIBE_SLOT(CHAIN_FLOW, EVENT_TEST, SLOT_EARLY, {
 })
 PS_SUBSCRIBE_SLOT(CHAIN_FLOW, ANY_EVENT, SLOT_EARLY,
                   { return record(event, 'a'); })
+PS_SUBSCRIBE_SLOT(CHAIN_OTHER, EVENT_OTHER, SLOT_EARLY, {})
     #ifndef OMIT_MIDDLE
 PS_SUBSCRIBE_SLOT(CHAIN_FLOW, ANY_EVENT, SLOT_MIDDLE,
                   { return record(event, 'B'); })

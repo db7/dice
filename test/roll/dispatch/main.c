@@ -15,6 +15,19 @@ dynamic(chain_id chain, type_id type, void *event, struct metadata *md)
     return record(event, 'b');
 }
 
+#if DICE_PLUGINS
+static enum ps_err
+duplicate(chain_id chain, type_id type, void *event, struct metadata *md)
+{
+    (void)chain;
+    (void)type;
+    (void)event;
+    (void)md;
+    assert(0 && "rejected handler must never run");
+    return PS_ERROR;
+}
+#endif
+
 static void
 check(type_id type, const char *expected, char stop)
 {
@@ -31,6 +44,58 @@ main(int argc, char **argv)
 {
     if (argc > 1) {
 #if DICE_PLUGINS
+        if (!strcmp(argv[1], "duplicates")) {
+            bool strong = getenv("WITH_STRONG") != NULL;
+            if (strong) {
+                assert(ps_subscribe(CHAIN_FLOW, EVENT_TEST, duplicate,
+                                    SLOT_DIRECT) == PS_INVALID);
+                assert(ps_subscribe(CHAIN_FLOW, EVENT_TEST, duplicate,
+                                    SLOT_LAST) == PS_INVALID);
+                assert(ps_subscribe(CHAIN_FLOW, ANY_EVENT, duplicate,
+                                    SLOT_LAST) == PS_INVALID);
+                /* A linked wildcard also covers undeclared exact cases. */
+                assert(ps_subscribe(CHAIN_FLOW, EVENT_OTHER, duplicate,
+                                    SLOT_LAST) == PS_INVALID);
+                check(EVENT_TEST, "DL", 0);
+                check(EVENT_OTHER, "W", 0);
+            } else {
+                assert(ps_subscribe(CHAIN_FLOW, EVENT_TEST, dynamic,
+                                    SLOT_EARLY) == PS_OK);
+                assert(ps_subscribe(CHAIN_FLOW, EVENT_TEST, dynamic,
+                                    SLOT_EARLY) == PS_INVALID);
+                assert(ps_subscribe(CHAIN_FLOW, EVENT_TEST, duplicate,
+                                    SLOT_EARLY) == PS_INVALID);
+                assert(ps_subscribe(CHAIN_FLOW, ANY_EVENT, dynamic,
+                                    SLOT_EARLY) == PS_OK);
+                assert(ps_subscribe(CHAIN_FLOW, ANY_EVENT, dynamic,
+                                    SLOT_EARLY) == PS_INVALID);
+                assert(ps_subscribe(CHAIN_FLOW, ANY_EVENT, duplicate,
+                                    SLOT_EARLY) == PS_INVALID);
+                /* The same slot on another chain is independently occupied. */
+                assert(ps_subscribe(CHAIN_OTHER, EVENT_OTHER, dynamic,
+                                    SLOT_EARLY) == PS_OK);
+                /* A different event at the same slot is also independent. */
+                assert(ps_subscribe(CHAIN_FLOW, EVENT_OTHER, dynamic,
+                                    SLOT_EARLY) == PS_OK);
+                assert(ps_subscribe(CHAIN_FLOW, EVENT_OTHER, duplicate,
+                                    SLOT_EARLY) == PS_INVALID);
+                assert(ps_subscribe(CHAIN_FLOW, EVENT_TEST, dynamic,
+                                    SLOT_DIRECT) == PS_OK);
+                check(EVENT_TEST, "bb", 0);
+                check(EVENT_OTHER, "bb", 0);
+            }
+            return 0;
+        }
+        if (!strcmp(argv[1], "extensions")) {
+            int slot = DICE_LAST_KNOWN_SLOT + 1;
+            assert(ps_subscribe(CHAIN_FLOW, EVENT_TEST, dynamic, slot) ==
+                   PS_OK);
+            assert(ps_subscribe(CHAIN_FLOW, EVENT_TEST, dynamic, slot) ==
+                   PS_OK);
+            assert(ps_subscribe(CHAIN_FLOW, ANY_EVENT, dynamic, slot) == PS_OK);
+            check(EVENT_TEST, getenv("WITH_STRONG") ? "DLbbb" : "bbb", 0);
+            return 0;
+        }
         if (!strcmp(argv[1], "wildcard")) {
             /* A declared but unregistered exact callback still excludes ANY.
              */

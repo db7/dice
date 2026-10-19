@@ -84,6 +84,10 @@ enum ps_err ps_publish(const chain_id chain, const type_id type, void *event,
  *
  * `slot` determines the relative order in which the callbacks are called with
  * published events.
+ * In generated runtimes, a declared chain/type/slot accepts at most one
+ * handler. Registration returns PS_INVALID if a callback is already registered
+ * or a linked handler occupies the dispatch position. Extension slots beyond
+ * DICE_LAST_KNOWN_SLOT permit multiple callbacks.
  *
  * Note: ps_subscribe should only be called during initialization of the
  * system.

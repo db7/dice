@@ -341,6 +341,11 @@ the dispatcher, event/chain tables, and configuration checks, plus weak callback
 wrappers when plugins are enabled. Callback lists use compact indexes when
 public IDs are sparse.
 
+A declared chain/event/slot accepts at most one handler. Callback registration
+returns `PS_INVALID` if that subscription already has a callback or its dispatch
+position is occupied by a linked handler. Rejection leaves the existing handler
+unchanged. Slots above `DICE_LAST_KNOWN_SLOT` still accept multiple callbacks.
+
 Runtime and plugins must use the same generated header. The header carries a
 configuration/template fingerprint, checked when a plugin loads and registers.
 It detects different generated configurations; it does not describe application

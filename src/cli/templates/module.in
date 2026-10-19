@@ -24,7 +24,16 @@ int dice_subscribe_abi(const char *configuration, chain_id chain, type_id type,
 #define DICE_ROLL_JOIN(A, B) DICE_ROLL_JOIN_(A, B)
 #define DICE_ROLL_LOCAL(NAME) DICE_ROLL_JOIN(NAME, DICE_MODULE_SLOT)
 #define DICE_SLOT_HANDLER(C, E, S) V_JOIN(V_JOIN(V_JOIN(dice_slot, C), E), S)
+#define DICE_SLOT_BOUND(C, E, S) V_JOIN(V_JOIN(V_JOIN(dice_bound, C), E), S)
 #define DICE_CONSUMES(C, E, S) V_JOIN(V_JOIN(V_JOIN(dice_consumes, C), E), S)
+
+#if DICE_PLUGINS
+/* Registration must detect linked handlers without invoking user code. */
+#define DICE_BIND_SLOT(C, E, S) \
+    DICE_HIDE bool DICE_SLOT_BOUND(C, E, S)(void) { return true; }
+#else
+#define DICE_BIND_SLOT(C, E, S)
+#endif
 
 #if DICE_CHECK_ROUTES
 /* A handler's explicit SLOT shadows this translation unit's default. */
@@ -67,6 +76,7 @@ static void DICE_CTOR dice_validate_header_(void)
 #if !defined(DICE_PLUGIN_MODULE) && (defined(DICE_DISPATCH_MODULE) || DICE_ROLL_JOIN(DICE_STATIC_SLOT_, DICE_MODULE_SLOT))
 #define PS_SUBSCRIBE_SLOT(CHAIN, TYPE, SLOT, ...) \
     STATIC_ASSERT(DICE_CONSUMES(CHAIN, TYPE, SLOT), "undeclared slot consumption"); \
+    DICE_BIND_SLOT(CHAIN, TYPE, SLOT) \
     PS_HANDLER_DEF(CHAIN, TYPE, SLOT, DICE_ROUTE_CONTEXT(SLOT) __VA_ARGS__) \
     DICE_HIDE enum ps_err DICE_SLOT_HANDLER(CHAIN, TYPE, SLOT)( \
         chain_id chain, type_id type, void *event, struct metadata *md) \

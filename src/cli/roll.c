@@ -862,6 +862,10 @@ emit_known_callbacks(FILE *out)
                 chain, slot);
         for (size_t j = first; j < i; j++) {
             fprintf(out,
+                    "DICE_WEAK DICE_HIDE bool dice_bound_%d_%d_%d(void)\n"
+                    "{ return false; }\n",
+                    chain, subs[j].event, slot);
+            fprintf(out,
                     "DICE_WEAK DICE_HIDE enum ps_err %s(chain_id chain, "
                     "type_id type, void *event, struct metadata *md)\n{\n"
                     "    (void)chain; (void)type; (void)event; (void)md;\n"
@@ -913,6 +917,29 @@ emit_known_callbacks(FILE *out)
         fputs(
             "        size_t index = PS_TYPE_INDEX(type);\n"
             "        if (index >= PS_TYPE_COUNT) return PS_INVALID;\n"
+            "        if (heads[index].head) return PS_INVALID;\n",
+            out);
+        /* Match the dispatcher's exact-event precedence. A linked wildcard
+         * also occupies events without their own declared case. */
+        fputs("        switch (type) {\n", out);
+        for (size_t j = first; j < i; j++) {
+            if (!subs[j].event)
+                continue;
+            fprintf(out,
+                    "        case %d:\n"
+                    "            if (dice_bound_%d_%d_%d()) return "
+                    "PS_INVALID;\n"
+                    "            break;\n",
+                    subs[j].event, chain, subs[j].event, slot);
+        }
+        fputs("        default:\n", out);
+        if (wildcard)
+            fprintf(out,
+                    "            if (dice_bound_%d_0_%d()) return "
+                    "PS_INVALID;\n",
+                    chain, slot);
+        fputs(
+            "            break;\n        }\n"
             "        return ps_subscribe_list_(&heads[index], chain, type, "
             "callback, slot, type == ANY_EVENT);\n    }\n",
             out);
