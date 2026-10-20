@@ -1,11 +1,11 @@
-(import (mod self) (mod pthread_create) (mod malloc))
-(runtime (plugins true))
+(import (dice self) (dice pthread_create) (dice malloc))
+(plugins true)
 (prioritize (chains INTERCEPT_EVENT CAPTURE_EVENT)
             (events EVENT_THREAD_START EVENT_THREAD_EXIT))
 
 ; Events and chains are inferred from consumes/produces.
 (slot observer
-  (after dice-self)
+  (after (dice self))
   (consumes (CAPTURE_BEFORE EVENT_MALLOC)
             (CAPTURE_EVENT EVENT_THREAD_START EVENT_THREAD_EXIT)))
 

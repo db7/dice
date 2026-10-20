@@ -1,4 +1,4 @@
-(slot dice-cxa
+(slot cxa
   (consumes (CHAIN_DICE_CONTROL EVENT_DICE_INIT))
   (produces (INTERCEPT_BEFORE EVENT_CXA_GUARD_ACQUIRE EVENT_CXA_GUARD_RELEASE
                 EVENT_CXA_GUARD_ABORT)

@@ -1,2 +1,2 @@
 ; Compile the corresponding src/mod/*.c files separately against dice.h.
-(import (mod self) (mod pthread_create) (mod malloc))
+(import (dice self) (dice pthread_create) (dice malloc))

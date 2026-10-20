@@ -68,9 +68,17 @@ function(add_dice_core target config)
   endif()
   set(import_args)
   foreach(directory IN LISTS CORE_IMPORT_PATHS)
+    set(namespace)
+    if(directory MATCHES "^([^=]+)=(.*)$")
+      set(namespace "${CMAKE_MATCH_1}=")
+      set(directory "${CMAKE_MATCH_2}")
+    endif()
+    if(directory STREQUAL "")
+      message(FATAL_ERROR "add_dice_core: empty import directory")
+    endif()
     get_filename_component(directory "${directory}" ABSOLUTE BASE_DIR
                            "${CMAKE_CURRENT_SOURCE_DIR}")
-    list(APPEND import_args -I "${directory}")
+    list(APPEND import_args -I "${namespace}${directory}")
   endforeach()
   add_custom_command(
     OUTPUT "${generated}/dice.c" "${header}"

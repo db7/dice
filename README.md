@@ -56,7 +56,7 @@ declared routes at runtime. The helper accepts shared, static, module, and objec
 libraries, as well as executables. Existing Dice targets remain available.
 Call `add_dice_core` before `add_dice_mods`; modules may be added in multiple
 calls. Names such as `self` and `pthread_create` select sources and correspond
-to configuration slots `dice-self` and `dice-pthread-create`. Hyphens and
+to configuration slots `(dice self)` and `(dice pthread_create)`. Hyphens and
 underscores are equivalent; the `dice-` prefix is also accepted in module lists.
 Selecting a module does not add its routes to the configuration.
 Cross builds compile a native generator automatically using `DICE_HOST_CC`.
@@ -207,13 +207,12 @@ into migrated targets, since it supplies legacy capacity definitions.
 The input is a sequence of declarative S-expressions:
 
 ```scheme
-(import (mod self) (mod malloc))
-(runtime
-  (plugins true)
-  (mempool-size 209715200))
+(import (dice self) (dice malloc))
+(plugins true)
+(mempool-size 200Mi)
 
 (slot capture
-  (after dice-self)
+  (after (dice self))
   (before process)
   (consumes (CAPTURE_BEFORE EVENT_MALLOC))
   (produces (CHAIN_APPLICATION EVENT_REQUEST)))
@@ -223,34 +222,114 @@ The input is a sequence of declarative S-expressions:
   (produces (CHAIN_RESULTS EVENT_RESPONSE)))
 ```
 
-Library names follow the directory layout: `(import (mod self))` loads
-`mod/self.dice` from a search root. Dice's `src/` is the default root, so the
-built-in definitions live beside their implementations in `src/mod/*.dice`.
-Add roots with repeatable `-I DIRECTORY` or `-IDIRECTORY` options in any CLI mode;
-they are searched in command-line order before Dice's default root. Relative
-roots are resolved from the working directory. For example:
+Imports select files from logical directories, which supply slot namespaces.
+For example, `(import (dice foo))` finds `dice/foo.dice` under a search root and
+loads its top-level slots into `dice`. The filename `foo` adds no namespace level.
+Use repeatable `-I DIRECTORY` or `-IDIRECTORY` options in any CLI mode. A mapping
+`-INAMESPACE=DIRECTORY` mounts a physical directory under a logical namespace:
 
 ```sh
-dice-roll -I /path/to/coldtrace/src coldtrace.dice -o generated
+dice-roll -Isrc -Idice=src/mod system.dice -o generated
 ```
 
-With this root, `(import (dice subs_tsan))` loads
-`/path/to/coldtrace/src/dice/subs_tsan.dice`. Library components use their literal
-directory/file spelling; each must be an identifier, without slashes or `..`.
-The `.dice` extension is supplied by the loader. These files contain the same
-configuration forms as the application. Importing declarations does not compile
-their C sources: select those separately with `add_dice_mods` or your build system.
+Here both `src/dice/` and `src/mod/` supply files to `dice`. Search paths are
+checked in command-line order; the first matching filename wins. Relative roots
+are resolved from the working directory. The defaults, searched last, are Dice's
+`src/` root and `dice=src/mod` within the Dice checkout. Thus `(import (dice self))`
+loads the bundled `src/mod/self.dice` and declares slot `(dice self)`, exposed in
+C as `SLOT_DICE_SELF`.
 
-Imports are processed in place and each resolved file is loaded once, including
-through diamond imports or symlink aliases. Cycles are rejected. Use
+`(import (dice))` imports all immediate `.dice` files across the contributing
+directories. Filenames are merged using search-path precedence, then loaded in
+lexicographic order. Subdirectories require separate imports. An existing empty
+directory is valid; a missing file/directory is an error. When both `foo.dice`
+and a directory `foo` can be resolved, the file takes precedence. Import
+components use literal filename spelling and must be identifiers, without
+slashes or `..`; mapping prefixes may contain slash-separated components.
+Importing declarations does not compile their C sources: select those separately
+with `add_dice_mods` or your build system.
+
+Imports are processed in place and each canonical file is loaded once per
+namespace, including through diamond imports or symlink aliases. Mapping the
+same file into another namespace evaluates its declarations there too. Cycles
+are rejected. Use
 `(include "local.dice")` for textual inclusion relative to the containing file;
-includes can be repeated. Put application priorities after imports to override
-library defaults. A repeated import does not reapply an already loaded policy.
+includes retain the current namespace and can be repeated. Import names are
+absolute, even within a module. Put application priorities after imports to
+override library defaults. A repeated import does not reapply a loaded policy.
 
-With CMake, pass `IMPORT_PATHS directory ...` to `add_dice_core`. Relative roots
-are resolved against `CMAKE_CURRENT_SOURCE_DIR`, and imported files participate
-in dependency tracking. Existing `(dice ...)` wrappers remain accepted when they
-are the file's only top-level form. `(schema 1)` is optional in either style.
+With CMake, pass `IMPORT_PATHS directory namespace=directory ...` to
+`add_dice_core`. Relative directories are resolved against
+`CMAKE_CURRENT_SOURCE_DIR`. Imported files and directories participate in
+dependency tracking, including additions and removals in directory imports.
+Existing `(dice ...)` wrappers remain accepted when they are the file's only
+top-level form. `(schema 1)` is optional in either style.
+
+Use `(module NAME ...)` to introduce a nested namespace:
+
+```scheme
+; src/dice/foo.dice
+(slot s1)
+
+; src/mod/bar.dice
+(module bar
+  (slot s1 (after (dice s1)))
+  (slot s2 (after s1)))
+```
+
+After `(import (dice foo) (dice bar))`, these slots are `(dice s1)`,
+`(dice bar s1)` and `(dice bar s2)`. A file can contain several modules, and
+several files can contribute to the same namespace. Modules can be reopened.
+Duplicate qualified slot names and names used for both a slot and a module
+are errors.
+
+Ordering references written as lists are absolute qualified paths. A bare
+symbol first searches the current namespace, then its parents, including the
+top level. Resolution happens after all inputs have loaded, so forward
+references work. A reference to a namespace targets all its slots recursively:
+
+```scheme
+(slot first (before (dice bar))) ; before every slot inside dice/bar
+(slot last (after (dice)))      ; after every slot inside dice
+```
+
+Constraints can also appear alongside declarations, with two slot/namespace
+references. This is useful for ordering imported definitions without modifying
+them:
+
+```scheme
+(after (dice pthread_spinlock) (coldtrace marker))
+(before (observers) (processors))
+```
+
+`before` orders its first argument before its second; `after` does the reverse.
+These constraints add to those in the original slot declarations. The same
+lexical/qualified reference rules apply. Both arguments may name namespaces,
+in which case every slot in one is ordered relative to every slot in the other.
+
+Namespace grouping does not imply contiguous slot numbers or an internal order.
+File/declaration order does not add ordering constraints. Conflicting constraints,
+including ordering a slot before a namespace containing itself, are errors.
+An empty namespace contributes no ordering edges.
+
+The generated C names flatten qualified paths: `(dice bar s1)` becomes
+`SLOT_DICE_BAR_S1`. Collisions after flattening and uppercasing are rejected.
+Queries and graphs retain slash-separated names such as `dice/bar/s1`.
+Only slots are namespaced; event and chain identifiers remain global.
+The C source chooses its default slot through `DICE_MODULE_SLOT`, defined before
+including the generated header or supplied by the build. Multiple slots in one
+source can use `PS_SUBSCRIBE_SLOT` with their respective generated `SLOT_*` names.
+Numeric slot values are assigned by the generator.
+
+`plugins` and `mempool-size` are top-level settings; there is no `runtime`
+wrapper. Each setting may be declared once across the configuration and its
+imports/includes. They default to `true` and `200Mi`, respectively.
+
+`mempool-size` accepts a byte count or an integer with a binary suffix:
+`Ki`, `Mi`, `Gi`, or `Ti` (powers of 1024). For example, `200Mi` is 209715200
+bytes, the default pool size. The supported range is `4Ki` through `1Ti`,
+inclusive. These suffixes apply only to memory sizes; IDs and slot numbers
+remain plain integers.
 
 Events and chains are inferred from every `consumes` and `produces` endpoint.
 Their declarations are optional: use `(events (EVENT_RESPONSE 200))` or
@@ -360,9 +439,9 @@ use the public path; do not give those publishers `DICE_DISPATCH_MODULE`.
 - Module sources are supplied by the build, with their slots and routes declared
   explicitly in the configuration. There is no `embed` option. See
   `examples/roll/interceptors.dice` for the standard self, thread, and allocation
-  routes. Names such as `dice-self` are ordinary slot names; they do not select
+  routes. Names such as `(dice self)` identify slots; they do not select
   source files or add routes automatically.
-- `(runtime (plugins true))` is the default. Every declared consumer has a weak
+- `(plugins true)` is the default. Every declared consumer has a weak
   callback fallback unless its handler is linked into the runtime. Declare slots
   with `(slot monitor (consumes (CAPTURE_EVENT EVENT_THREAD_START)))`.
   Plugins include this runtime's generated `dice.h`, define `DICE_PLUGIN_MODULE`
@@ -371,7 +450,7 @@ use the public path; do not give those publishers `DICE_DISPATCH_MODULE`.
   The OS loads plugins through `LD_PRELOAD` /
   `DYLD_INSERT_LIBRARIES`. Registration happens at startup, before worker threads
   publish events.
-- With `(runtime (plugins false))`, callback storage, weak fallback handlers and
+- With `(plugins false)`, callback storage, weak fallback handlers and
   the trailing callback phase are omitted. Every declared consumer handler must
   be linked into the runtime; callback registration is rejected.
 - Standard Dice IDs remain fixed. Automatic event IDs start at 128 and chain IDs

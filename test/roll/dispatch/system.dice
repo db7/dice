@@ -1,5 +1,5 @@
 (dice (schema 1)
-  (runtime (plugins true))
+  (plugins true)
   ; Exercise preferred exact handlers, wildcard events in the fallback, and
   ; publications to an unprioritized chain with the same event.
   (prioritize (chains CHAIN_FLOW) (events EVENT_TEST))

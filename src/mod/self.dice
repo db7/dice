@@ -1,4 +1,4 @@
-(slot dice-self
+(slot self
   (consumes (CHAIN_DICE_CONTROL EVENT_DICE_INIT)
             (INTERCEPT_EVENT ANY_EVENT EVENT_THREAD_EXIT)
             (INTERCEPT_BEFORE ANY_EVENT)

@@ -9,8 +9,14 @@ foreach(runtime foo bar)
   if(runtime STREQUAL "bar")
     set(checks CHECK_ROUTES)
   endif()
-  add_dice_core(${runtime} "${runtime}.dice" ${checks}
-                IMPORT_PATHS "import path")
+  add_dice_core(
+    ${runtime}
+    "${runtime}.dice"
+    ${checks}
+    IMPORT_PATHS
+    "app=import path/app"
+    "dice=import path/dice"
+    "extra=extra definitions")
   add_dice_mods(${runtime} self pthread_create)
   add_dice_mods(${runtime} malloc)
   add_executable(${runtime}-app main.c)

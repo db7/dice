@@ -12,22 +12,26 @@ endfunction()
 
 set(root "${WORK}/cmake-consumer")
 set(build "${root}/build")
-file(MAKE_DIRECTORY "${root}/import path/app" "${root}/import path/mod")
+file(MAKE_DIRECTORY "${root}/import path/app" "${root}/import path/dice")
+file(REMOVE_RECURSE "${root}/extra definitions")
+file(MAKE_DIRECTORY "${root}/extra definitions")
+file(WRITE "${root}/extra definitions/first.dice" "(slot first)\n")
 file(COPY "${FIXTURES}/cmake/" DESTINATION "${root}")
 file(COPY "${SOURCE}/examples/roll/interceptors.dice" DESTINATION "${root}")
-file(COPY "${SOURCE}/src/mod/self.dice" DESTINATION "${root}/import path/mod")
+file(COPY "${SOURCE}/src/mod/self.dice" DESTINATION "${root}/import path/dice")
 file(
   WRITE "${root}/foo.dice"
   [=[
-(runtime (plugins true))
+(plugins true)
 (include "interceptors.dice")
 (import (app observer-routes))
+(import (extra))
 ]=])
 set(routes
     [=[
 (dice (schema 1)
   (include "types-ids.dice")
-  (slot observer (number 32) (after dice-self)
+  (slot observer (number 32) (after (dice self))
     (consumes (CAPTURE_BEFORE EVENT_MALLOC)
               (CAPTURE_EVENT EVENT_THREAD_START EVENT_THREAD_EXIT))))
 ]=])
@@ -37,17 +41,17 @@ file(WRITE "${root}/import path/app/types-ids.dice"
 file(
   WRITE "${root}/bar.dice"
   [=[
-(dice (schema 1) (runtime (plugins false))
+(dice (schema 1) (plugins false)
   (include "interceptors.dice")
   (events (EVENT_USER 400))
-  (slot observer (number 64) (after dice-self)
+  (module app (slot observer (number 64) (after (dice self))
     (consumes (CAPTURE_BEFORE EVENT_MALLOC)
-              (CAPTURE_EVENT EVENT_THREAD_START EVENT_THREAD_EXIT))))
+              (CAPTURE_EVENT EVENT_THREAD_START EVENT_THREAD_EXIT)))))
 ]=])
 file(
   WRITE "${root}/direct.dice"
   [=[
-(dice (schema 1) (runtime (plugins false))
+(dice (schema 1) (plugins false)
   (slot source (produces (CHAIN_USER EVENT_USER)))
   (slot observer (consumes (CHAIN_USER EVENT_USER))))
 ]=])
@@ -82,6 +86,21 @@ if(NOT now STREQUAL foo_time)
   message(FATAL_ERROR "Unchanged configuration was regenerated")
 endif()
 
+# Directory membership is a dependency, including additions and removals.
+file(WRITE "${root}/extra definitions/second.dice" "(slot second)\n")
+run("${CMAKE_COMMAND}" --build "${build}" -j 4)
+file(READ "${build}/foo-dice/dice.h" header)
+if(NOT header MATCHES "#define SLOT_EXTRA_SECOND ")
+  message(FATAL_ERROR "Adding a namespace member did not regenerate foo")
+endif()
+run("${CMAKE_COMMAND}" -E sleep 1)
+file(REMOVE "${root}/extra definitions/second.dice")
+run("${CMAKE_COMMAND}" --build "${build}" -j 4)
+file(READ "${build}/foo-dice/dice.h" header)
+if(header MATCHES "#define SLOT_EXTRA_SECOND ")
+  message(FATAL_ERROR "Removing a namespace member did not regenerate foo")
+endif()
+
 # An include inside an imported library must regenerate foo.
 file(WRITE "${root}/import path/app/types-ids.dice"
      "(dice (schema 1) (events (EVENT_USER 201)))\n")
@@ -107,9 +126,9 @@ string(REPLACE "(number 32)" "(number 33)" routes "${routes}")
 file(WRITE "${root}/import path/app/observer-routes.dice" "${routes}")
 
 # Moving a built-in slot must also rebuild the interceptor implementation.
-file(READ "${root}/import path/mod/self.dice" self)
-string(REPLACE "(slot dice-self" "(slot dice-self (number 7)" self "${self}")
-file(WRITE "${root}/import path/mod/self.dice" "${self}")
+file(READ "${root}/import path/dice/self.dice" self)
+string(REPLACE "(slot self" "(slot self (number 7)" self "${self}")
+file(WRITE "${root}/import path/dice/self.dice" "${self}")
 run("${CMAKE_COMMAND}" --build "${build}" -j 4)
 run("${build}/foo-app" 33 203)
 run("${build}/bar-app" 64 400)

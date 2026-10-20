@@ -1,8 +1,8 @@
 ; Topology excerpt from Lotto's mutex/cxa subscribers and runtime ingress.
 ; This describes the boundary into ingress, not a complete Lotto runtime.
 ; Port the corresponding C handlers to dice.h and SLOT_* before linking.
-(import (mod self) (mod pthread_create) (mod pthread_mutex) (mod cxa))
-(runtime (plugins true))
+(import (dice self) (dice pthread_create) (dice pthread_mutex) (dice cxa))
+(plugins true)
 
 ; Optional pins can preserve Lotto's existing ABI during migration:
 ; (events (EVENT_MUTEX_ACQUIRE 142)
@@ -11,7 +11,7 @@
 ;         (CHAIN_INGRESS_AFTER 11) (CHAIN_LOTTO_TRAP 14))
 
 (slot lotto-mutex
-  (after dice-self)
+  (after (dice self))
   (before lotto-ingress)
   (consumes
     (CAPTURE_BEFORE EVENT_MUTEX_LOCK EVENT_MUTEX_TRYLOCK
@@ -22,7 +22,7 @@
                          EVENT_MUTEX_RELEASE)))
 
 (slot lotto-cxa
-  (after dice-self)
+  (after (dice self))
   (before lotto-ingress)
   (consumes
     (CAPTURE_BEFORE EVENT_CXA_GUARD_ACQUIRE)

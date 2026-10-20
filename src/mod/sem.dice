@@ -1,4 +1,4 @@
-(slot dice-sem
+(slot sem
   (consumes (CHAIN_DICE_CONTROL EVENT_DICE_INIT))
   (produces (INTERCEPT_BEFORE EVENT_SEM_POST EVENT_SEM_WAIT EVENT_SEM_TRYWAIT
                 EVENT_SEM_TIMEDWAIT)

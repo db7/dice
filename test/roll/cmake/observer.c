@@ -1,4 +1,4 @@
-#define DICE_MODULE_SLOT SLOT_OBSERVER
+#define DICE_MODULE_SLOT SLOT_APP_OBSERVER
 #include "dice.h"
 
 static int allocations, starts, exits;
@@ -6,7 +6,7 @@ static int allocations, starts, exits;
 int
 configured_slot(void)
 {
-    return SLOT_OBSERVER;
+    return SLOT_APP_OBSERVER;
 }
 int
 configured_event(void)

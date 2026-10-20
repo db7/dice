@@ -1,4 +1,4 @@
-(slot dice-pthread-rwlock
+(slot pthread-rwlock
   (consumes (CHAIN_DICE_CONTROL EVENT_DICE_INIT))
   (produces (INTERCEPT_BEFORE EVENT_RWLOCK_RDLOCK EVENT_RWLOCK_TIMEDRDLOCK
                 EVENT_RWLOCK_TRYRDLOCK EVENT_RWLOCK_WRLOCK

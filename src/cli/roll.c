@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -37,8 +38,11 @@ static struct subscription subs[LIMIT];
 static struct subscription prods[LIMIT];
 static struct slot slots[SLOT_LIMIT];
 static struct dependency {
-    char before[NAME_SIZE], after[NAME_SIZE];
+    char slot[NAME_SIZE], reference[NAME_SIZE], scope[NAME_SIZE];
+    bool before, absolute, slot_absolute;
 } deps[LIMIT];
+static char namespaces[LIMIT][NAME_SIZE];
+static size_t nnamespaces;
 static bool edges[SLOT_LIMIT][SLOT_LIMIT];
 static size_t nids, nsubs, nprods, nslots, ndeps;
 static struct priority {
@@ -49,13 +53,22 @@ static struct priority {
 } chain_priority, event_priority;
 static bool event_first;
 static int last_known_slot;
-static bool plugins          = true, runtime_seen;
+static bool plugins = true;
+static unsigned settings_seen;
 static uint64_t mempool_size = 200 * 1024 * 1024;
 static char config_id[32];
 static const char *input_name;
 static char *input_paths[LIMIT];
 static size_t ninputs;
-static const char *import_paths[LIMIT];
+static struct loaded_file {
+    const char *path;
+    char scope[NAME_SIZE];
+} loaded_files[LIMIT];
+static size_t nloaded;
+static struct import_path {
+    char prefix[NAME_SIZE];
+    const char *directory;
+} import_paths[LIMIT];
 static size_t nimport_paths;
 static struct source_file {
     const char *name, *path;
@@ -133,6 +146,33 @@ name_equal(const char *a, const char *b)
     return *a == *b;
 }
 
+static void
+qualified_name(char *dst, const char *scope, const char *name)
+{
+    char component[NAME_SIZE];
+    name_copy(component, name);
+    if (snprintf(dst, NAME_SIZE, "%s%s%s", scope, *scope ? "/" : "",
+                 component) >= NAME_SIZE)
+        fail("qualified name too long: %s/%s", scope, name);
+}
+
+static void
+macro_name(char *dst, const char *name)
+{
+    do {
+        *dst++ = *name == '/' ? '_' : toupper((unsigned char)*name);
+    } while (*name++);
+}
+
+static int
+find_namespace(const char *name)
+{
+    for (size_t i = 0; i < nnamespaces; i++)
+        if (!strcmp(namespaces[i], name))
+            return (int)i;
+    return -1;
+}
+
 static struct identifier *
 find_id(const char *name, bool chain)
 {
@@ -205,6 +245,28 @@ number(const struct sxp *n, int64_t min, int64_t max)
     return value;
 }
 
+static uint64_t
+memory_size(const struct sxp *n)
+{
+    const char *s = atom(n);
+    char *end;
+    errno                  = 0;
+    long long value        = strtoll(s, &end, 10);
+    uint64_t scale         = *end ? 0 : 1;
+    const char *suffixes[] = {"Ki", "Mi", "Gi", "Ti"};
+    for (size_t i = 0; i < COUNT(suffixes); i++)
+        if (!strcmp(end, suffixes[i]))
+            scale = UINT64_C(1) << (10 * (i + 1));
+    const uint64_t maximum = UINT64_C(1) << 40;
+    if (errno || end == s || value < 0 || !scale ||
+        (uint64_t)value > maximum / scale || (uint64_t)value * scale < 4096)
+        fail(
+            "line %u: expected memory size in 4Ki..1Ti "
+            "(bytes or an integer with Ki, Mi, Gi, Ti suffix)",
+            n->line);
+    return (uint64_t)value * scale;
+}
+
 static void
 read_ids(const struct sxp *args, bool chain)
 {
@@ -236,24 +298,62 @@ add_slot(const char *name)
 {
     if (find_slot(name) >= 0)
         fail("duplicate slot: %s", name);
+    if (find_namespace(name) >= 0)
+        fail("name is both a slot and a module: %s", name);
     if (nslots == SLOT_LIMIT)
         fail("too many slots (limit %d)", SLOT_LIMIT);
     struct slot *s = &slots[nslots];
-    name_copy(s->name, name);
-    if (!strcmp(s->name, "dice_core"))
+    strcpy(s->name, name);
+    char macro[NAME_SIZE];
+    macro_name(macro, name);
+    if (!strcmp(macro, "DICE_CORE"))
         fail("reserved slot dice-core belongs to the core at slot 0");
     for (size_t i = 0; i < nslots; i++) {
-        size_t j = 0;
-        while (s->name[j] && slots[i].name[j] &&
-               toupper((unsigned char)s->name[j]) ==
-                   toupper((unsigned char)slots[i].name[j]))
-            j++;
-        if (!s->name[j] && !slots[i].name[j])
+        char other[NAME_SIZE];
+        macro_name(other, slots[i].name);
+        if (!strcmp(macro, other))
             fail("slot names collide in generated macros: %s and %s", name,
                  slots[i].name);
     }
     s->number = s->forced = -1;
     return (int)nslots++;
+}
+
+static void
+add_namespace(const char *name)
+{
+    if (!*name || find_namespace(name) >= 0)
+        return;
+    if (find_slot(name) >= 0)
+        fail("name is both a slot and a module: %s", name);
+    char parent[NAME_SIZE];
+    strcpy(parent, name);
+    char *last = strrchr(parent, '/');
+    if (last) {
+        *last = 0;
+        add_namespace(parent);
+    }
+    if (nnamespaces == LIMIT)
+        fail("too many namespaces");
+    strcpy(namespaces[nnamespaces++], name);
+}
+
+/* Ordering lists are absolute paths; symbols use lexical scope. */
+static void
+read_reference(char *name, const struct sxp *ref)
+{
+    if (ref->kind != SXP_LIST) {
+        name_copy(name, atom(ref));
+        return;
+    }
+    if (!ref->child)
+        fail("line %u: empty ordering reference", ref->line);
+    *name = 0;
+    for (const struct sxp *part = ref->child; part; part = part->next) {
+        char next[NAME_SIZE];
+        qualified_name(next, name, atom(part));
+        strcpy(name, next);
+    }
 }
 
 static void
@@ -269,7 +369,7 @@ read_routes(const struct sxp *args, const char *slot, bool produces)
             if (*count == LIMIT)
                 fail("too many routes");
             struct subscription *r = &(produces ? prods : subs)[(*count)++];
-            name_copy(r->slot_name, slot);
+            strcpy(r->slot_name, slot);
             name_copy(r->chain_name, atom(head));
             name_copy(r->event_name, atom(event));
         }
@@ -277,11 +377,12 @@ read_routes(const struct sxp *args, const char *slot, bool produces)
 }
 
 static void
-read_slot(const struct sxp *head)
+read_slot(const struct sxp *head, const char *scope)
 {
-    const char *name = atom(head->next);
-    int index        = add_slot(name);
-    unsigned seen    = 0;
+    char name[NAME_SIZE];
+    qualified_name(name, scope, atom(head->next));
+    int index     = add_slot(name);
+    unsigned seen = 0;
     for (const struct sxp *n = head->next->next; n; n = n->next) {
         const struct sxp *key = form(n);
         unsigned bit;
@@ -310,41 +411,50 @@ read_slot(const struct sxp *head)
             for (const struct sxp *ref = key->next; ref; ref = ref->next) {
                 if (ndeps == LIMIT)
                     fail("too many ordering constraints");
-                name_copy(deps[ndeps].before, bit == 2 ? name : atom(ref));
-                name_copy(deps[ndeps++].after, bit == 2 ? atom(ref) : name);
+                struct dependency *dep = &deps[ndeps++];
+                strcpy(dep->slot, name);
+                strcpy(dep->scope, scope);
+                read_reference(dep->reference, ref);
+                dep->before        = bit == 2;
+                dep->absolute      = ref->kind == SXP_LIST;
+                dep->slot_absolute = true;
             }
         }
     }
 }
 
 static void
-read_runtime(const struct sxp *args)
+read_order(const struct sxp *key, const char *scope)
 {
-    if (runtime_seen)
-        fail("runtime may be specified in only one input file");
-    runtime_seen  = true;
-    unsigned seen = 0;
-    for (const struct sxp *n = args; n; n = n->next) {
-        const struct sxp *key = form(n);
-        unsigned bit;
-        if (symbol(key, "plugins"))
-            bit = 1;
-        else if (symbol(key, "mempool_size"))
-            bit = 2;
-        else
-            fail("line %u: unknown runtime field %s", key->line, key->text);
-        if (seen & bit)
-            fail("line %u: duplicate runtime field %s", key->line, key->text);
-        seen |= bit;
-        if (bit == 1) {
-            const struct sxp *value = single(key);
-            if (!symbol(value, "true") && !symbol(value, "false"))
-                fail("line %u: plugins expects true or false", value->line);
-            plugins = symbol(value, "true");
-        } else {
-            mempool_size =
-                (uint64_t)number(single(key), 4096, INT64_C(1099511627776));
-        }
+    const struct sxp *left = key->next;
+    if (!left || !left->next || left->next->next)
+        fail("line %u: %s expects two ordering references", key->line,
+             key->text);
+    if (ndeps == LIMIT)
+        fail("too many ordering constraints");
+    struct dependency *dep = &deps[ndeps++];
+    strcpy(dep->scope, scope);
+    read_reference(dep->slot, left);
+    read_reference(dep->reference, left->next);
+    dep->before        = symbol(key, "before");
+    dep->slot_absolute = left->kind == SXP_LIST;
+    dep->absolute      = left->next->kind == SXP_LIST;
+}
+
+static void
+read_setting(const struct sxp *key)
+{
+    unsigned bit = symbol(key, "plugins") ? 1 : 2;
+    if (settings_seen & bit)
+        fail("line %u: duplicate setting %s", key->line, key->text);
+    settings_seen |= bit;
+    const struct sxp *value = single(key);
+    if (bit == 1) {
+        if (!symbol(value, "true") && !symbol(value, "false"))
+            fail("line %u: plugins expects true or false", value->line);
+        plugins = symbol(value, "true");
+    } else {
+        mempool_size = memory_size(value);
     }
 }
 
@@ -382,19 +492,125 @@ read_priority(const struct sxp *head)
     }
 }
 
-static void read_config(const char *, const char *[], int, bool);
+static void read_config(const char *, const char *[], int, bool, const char *);
+
+static const char *
+record_input(const char *path)
+{
+    char resolved[PATH_MAX];
+    if (!realpath(path, resolved))
+        fail("%s: %s", path, strerror(errno));
+    for (size_t i = 0; i < ninputs; i++)
+        if (!strcmp(input_paths[i], resolved))
+            return input_paths[i];
+    if (ninputs == LIMIT)
+        fail("too many configuration inputs");
+    char *copy = strdup(resolved);
+    if (!copy)
+        fail("out of memory");
+    input_paths[ninputs++] = copy;
+    return copy;
+}
+
+static void
+add_import_path(const char *argument)
+{
+    if (!*argument || nimport_paths == COUNT(import_paths))
+        fail("invalid or too many import search paths");
+    struct import_path *entry = &import_paths[nimport_paths++];
+    const char *equal         = strchr(argument, '=');
+    entry->directory          = equal ? equal + 1 : argument;
+    if (!*entry->directory)
+        fail("empty import directory: %s", argument);
+    if (!equal)
+        return;
+    size_t length = (size_t)(equal - argument);
+    if (!length || length >= sizeof(entry->prefix))
+        fail("invalid namespace mapping: %s", argument);
+    memcpy(entry->prefix, argument, length);
+    entry->prefix[length] = 0;
+    const char *part      = entry->prefix;
+    while (part) {
+        const char *end = strchr(part, '/');
+        size_t size     = end ? (size_t)(end - part) : strlen(part);
+        char component[NAME_SIZE], checked[NAME_SIZE];
+        memcpy(component, part, size);
+        component[size] = 0;
+        name_copy(checked, component);
+        part = end ? end + 1 : NULL;
+    }
+}
+
+static bool
+import_candidate(char *path, const struct import_path *root,
+                 const char *relative, bool file)
+{
+    size_t prefix = strlen(root->prefix);
+    if (prefix) {
+        if (strncmp(relative, root->prefix, prefix) ||
+            (relative[prefix] && relative[prefix] != '/'))
+            return false;
+        relative += prefix;
+        if (*relative)
+            relative++;
+    }
+    /* A mount point itself denotes a directory, never directory.dice. */
+    if (file && !*relative)
+        return false;
+    if (snprintf(path, PATH_MAX, "%s%s%s%s", root->directory,
+                 *relative ? "/" : "", relative,
+                 file ? ".dice" : "") >= PATH_MAX)
+        fail("import path too long");
+    return true;
+}
+
+/* Watching directories also detects added/removed members of a bulk import.
+ * For missing roots, watch the nearest existing parent for their creation. */
+static void
+watch_directory(const char *path)
+{
+    char parent[PATH_MAX];
+    strcpy(parent, path);
+    struct stat info;
+    while (stat(parent, &info)) {
+        if (errno != ENOENT && errno != ENOTDIR)
+            fail("%s: %s", parent, strerror(errno));
+        char *last = strrchr(parent, '/');
+        if (!last) {
+            strcpy(parent, ".");
+            break;
+        }
+        if (last == parent) {
+            parent[1] = 0;
+            break;
+        }
+        *last = 0;
+    }
+    record_input(parent);
+}
+
+struct import_file {
+    char *name, *path;
+};
+
+static int
+import_compare(const void *a, const void *b)
+{
+    return strcmp(((const struct import_file *)a)->name,
+                  ((const struct import_file *)b)->name);
+}
 
 static void
 read_import(const struct sxp *library, const char *ancestors[], int depth)
 {
     if (library->kind != SXP_LIST || !library->child)
         fail("line %u: import expects a nonempty library name", library->line);
-    char relative[PATH_MAX] = "";
-    size_t length           = 0;
+    char relative[PATH_MAX] = "", scope[NAME_SIZE] = "", parent[NAME_SIZE];
+    size_t length = 0;
     for (const struct sxp *n = library->child; n; n = n->next) {
         const char *part = atom(n);
-        char checked[NAME_SIZE];
-        name_copy(checked, part);
+        strcpy(parent, scope);
+        qualified_name(scope, parent, part);
         /* Library components are literal file names, not C identifiers. */
         int added = snprintf(relative + length, sizeof(relative) - length,
                              "%s%s", length ? "/" : "", part);
@@ -402,14 +618,11 @@ read_import(const struct sxp *library, const char *ancestors[], int depth)
             fail("import path too long");
         length += (size_t)added;
     }
-    for (size_t i = 0; i <= nimport_paths; i++) {
-        const char *directory =
-            i < nimport_paths ? import_paths[i] : DICE_SOURCE_DIR "/src";
+    /* A file import takes precedence over a directory import. */
+    for (size_t i = 0; i < nimport_paths; i++) {
         char candidate[PATH_MAX];
-        int len = snprintf(candidate, sizeof(candidate), "%s/%s.dice",
-                           directory, relative);
-        if (len < 0 || (size_t)len >= sizeof(candidate))
-            fail("import path too long");
+        if (!import_candidate(candidate, &import_paths[i], relative, true))
+            continue;
         struct stat info;
         if (stat(candidate, &info)) {
             if (errno == ENOENT || errno == ENOTDIR)
@@ -418,48 +631,86 @@ read_import(const struct sxp *library, const char *ancestors[], int depth)
         }
         if (!S_ISREG(info.st_mode))
             fail("import is not a regular file: %s", candidate);
-        read_config(candidate, ancestors, depth + 1, true);
+        read_config(candidate, ancestors, depth + 1, true, parent);
         return;
     }
-    fail("line %u: cannot find import %s.dice (use -I DIRECTORY)",
-         library->line, relative);
+
+    struct import_file *files = calloc(LIMIT, sizeof(*files));
+    if (!files)
+        fail("out of memory");
+    size_t count = 0;
+    bool found   = false;
+    for (size_t i = 0; i < nimport_paths; i++) {
+        char directory[PATH_MAX];
+        if (!import_candidate(directory, &import_paths[i], relative, false))
+            continue;
+        watch_directory(directory);
+        DIR *dir = opendir(directory);
+        if (!dir) {
+            if (errno == ENOENT || errno == ENOTDIR)
+                continue;
+            fail("%s: %s", directory, strerror(errno));
+        }
+        found = true;
+        for (;;) {
+            errno                = 0;
+            struct dirent *entry = readdir(dir);
+            if (!entry) {
+                if (errno)
+                    fail("%s: %s", directory, strerror(errno));
+                break;
+            }
+            size_t size = strlen(entry->d_name);
+            if (size <= 5 || strcmp(entry->d_name + size - 5, ".dice"))
+                continue;
+            bool duplicate = false;
+            for (size_t j = 0; j < count; j++)
+                if (!strcmp(files[j].name, entry->d_name))
+                    duplicate = true;
+            if (duplicate)
+                continue;
+            char path[PATH_MAX];
+            if (snprintf(path, sizeof(path), "%s/%s", directory,
+                         entry->d_name) >= (int)sizeof(path))
+                fail("import path too long");
+            struct stat info;
+            if (stat(path, &info))
+                fail("%s: %s", path, strerror(errno));
+            if (!S_ISREG(info.st_mode))
+                continue;
+            char stem[NAME_SIZE], checked[NAME_SIZE];
+            if (size - 5 >= sizeof(stem))
+                fail("import filename too long: %s", path);
+            memcpy(stem, entry->d_name, size - 5);
+            stem[size - 5] = 0;
+            name_copy(checked, stem);
+            if (count == LIMIT)
+                fail("too many files in directory import");
+            files[count].name = strdup(entry->d_name);
+            files[count].path = strdup(path);
+            if (!files[count].name || !files[count].path)
+                fail("out of memory");
+            count++;
+        }
+        closedir(dir);
+    }
+    if (!found)
+        fail("line %u: cannot find import %s (use -I DIRECTORY)", library->line,
+             relative);
+    add_namespace(scope);
+    qsort(files, count, sizeof(*files), import_compare);
+    for (size_t i = 0; i < count; i++) {
+        read_config(files[i].path, ancestors, depth + 1, true, scope);
+        free(files[i].name);
+        free(files[i].path);
+    }
+    free(files);
 }
 
 static void
-read_config(const char *path, const char *ancestors[], int depth, bool once)
+read_forms(const struct sxp *forms, const char *path, const char *ancestors[],
+           int depth, const char *scope)
 {
-    if (depth == 32)
-        fail("configuration includes/imports exceed 32 levels");
-    char resolved[PATH_MAX];
-    if (!realpath(path, resolved))
-        fail("%s: %s", path, strerror(errno));
-    for (int i = 0; i < depth; i++)
-        if (!strcmp(ancestors[i], resolved))
-            fail("include cycle or import cycle involving %s", resolved);
-    if (once)
-        for (size_t i = 0; i < ninputs; i++)
-            if (!strcmp(input_paths[i], resolved))
-                return;
-    ancestors[depth] = resolved;
-    if (ninputs == COUNT(input_paths))
-        fail("too many configuration inputs");
-    input_paths[ninputs] = strdup(resolved);
-    if (!input_paths[ninputs++])
-        fail("out of memory");
-    FILE *file = fopen(resolved, "r");
-    if (!file)
-        fail("%s: %s", resolved, strerror(errno));
-    struct sxp_error error;
-    struct sxp *root = sxp_read_all(file, &error);
-    fclose(file);
-    if (!root)
-        fail("%s:%u: %s", resolved, error.line, error.message);
-    const struct sxp *forms = root->child;
-    if (forms && symbol(form(forms), "dice")) {
-        if (forms->next)
-            fail("%s: expected end of file after (dice ...) wrapper", resolved);
-        forms = form(forms)->next;
-    }
     bool schema = false;
     for (const struct sxp *n = forms; n; n = n->next) {
         const struct sxp *key = form(n);
@@ -470,12 +721,19 @@ read_config(const char *path, const char *ancestors[], int depth, bool once)
             schema = true;
         } else if (symbol(key, "events") || symbol(key, "chains")) {
             read_ids(key->next, symbol(key, "chains"));
-        } else if (symbol(key, "runtime")) {
-            read_runtime(key->next);
+        } else if (symbol(key, "plugins") || symbol(key, "mempool_size")) {
+            read_setting(key);
         } else if (symbol(key, "prioritize")) {
             read_priority(key);
         } else if (symbol(key, "slot")) {
-            read_slot(key);
+            read_slot(key, scope);
+        } else if (symbol(key, "before") || symbol(key, "after")) {
+            read_order(key, scope);
+        } else if (symbol(key, "module")) {
+            char nested[NAME_SIZE];
+            qualified_name(nested, scope, atom(key->next));
+            add_namespace(nested);
+            read_forms(key->next->next, path, ancestors, depth, nested);
         } else if (symbol(key, "import")) {
             if (!key->next)
                 fail("import requires at least one library name");
@@ -493,16 +751,54 @@ read_config(const char *path, const char *ancestors[], int depth, bool once)
                     len = snprintf(next, sizeof(next), "%s", p->text);
                 else
                     len = snprintf(next, sizeof(next), "%.*s/%s",
-                                   (int)(strrchr(resolved, '/') - resolved),
-                                   resolved, p->text);
+                                   (int)(strrchr(path, '/') - path), path,
+                                   p->text);
                 if (len < 0 || (size_t)len >= sizeof(next))
                     fail("include path too long");
-                read_config(next, ancestors, depth + 1, false);
+                read_config(next, ancestors, depth + 1, false, scope);
             }
         } else {
-            fail("%s:%u: unknown form %s", resolved, key->line, key->text);
+            fail("%s:%u: unknown form %s", path, key->line, key->text);
         }
     }
+}
+
+static void
+read_config(const char *path, const char *ancestors[], int depth, bool once,
+            const char *scope)
+{
+    if (depth == 32)
+        fail("configuration includes/imports exceed 32 levels");
+    const char *resolved = record_input(path);
+    for (int i = 0; i < depth; i++)
+        if (!strcmp(ancestors[i], resolved))
+            fail("include cycle or import cycle involving %s", resolved);
+    if (once)
+        for (size_t i = 0; i < nloaded; i++)
+            if (!strcmp(loaded_files[i].path, resolved) &&
+                !strcmp(loaded_files[i].scope, scope))
+                return;
+    if (nloaded == LIMIT)
+        fail("too many configuration inputs");
+    loaded_files[nloaded].path = resolved;
+    strcpy(loaded_files[nloaded++].scope, scope);
+    ancestors[depth] = resolved;
+    add_namespace(scope);
+    FILE *file = fopen(resolved, "r");
+    if (!file)
+        fail("%s: %s", resolved, strerror(errno));
+    struct sxp_error error;
+    struct sxp *root = sxp_read_all(file, &error);
+    fclose(file);
+    if (!root)
+        fail("%s:%u: %s", resolved, error.line, error.message);
+    const struct sxp *forms = root->child;
+    if (forms && symbol(form(forms), "dice")) {
+        if (forms->next)
+            fail("%s: expected end of file after (dice ...) wrapper", resolved);
+        forms = form(forms)->next;
+    }
+    read_forms(forms, resolved, ancestors, depth, scope);
     sxp_free(root);
 }
 
@@ -532,17 +828,61 @@ slot_compare(const void *a, const void *b)
                   ((const struct slot *)b)->name);
 }
 
+static int
+resolve_reference(const char *name, const char *scope, bool absolute,
+                  char *resolved)
+{
+    char current[NAME_SIZE];
+    strcpy(current, scope);
+    for (;;) {
+        if (absolute)
+            strcpy(resolved, name);
+        else
+            qualified_name(resolved, current, name);
+        int slot = find_slot(resolved);
+        if (slot >= 0 || find_namespace(resolved) >= 0)
+            return slot;
+        if (absolute || !*current)
+            fail("unknown slot or module in constraint: %s", name);
+        char *last = strrchr(current, '/');
+        if (last)
+            *last = 0;
+        else
+            *current = 0;
+    }
+}
+
+static bool
+reference_matches(size_t slot, int target, const char *name)
+{
+    if (target >= 0)
+        return (int)slot == target;
+    size_t length = strlen(name);
+    return !strncmp(slots[slot].name, name, length) &&
+           slots[slot].name[length] == '/';
+}
+
 static void
 prepare_slots(void)
 {
     qsort(slots, nslots, sizeof(*slots), slot_compare);
     for (size_t i = 0; i < ndeps; i++) {
-        int before = find_slot(deps[i].before),
-            after  = find_slot(deps[i].after);
-        if (before < 0 || after < 0)
-            fail("unknown slot in constraint %s -> %s", deps[i].before,
-                 deps[i].after);
-        edges[before][after] = true;
+        const struct dependency *dep = &deps[i];
+        char left[NAME_SIZE], right[NAME_SIZE];
+        int owner =
+            resolve_reference(dep->slot, dep->scope, dep->slot_absolute, left);
+        int target =
+            resolve_reference(dep->reference, dep->scope, dep->absolute, right);
+        for (size_t j = 0; j < nslots; j++)
+            if (reference_matches(j, owner, left))
+                for (size_t k = 0; k < nslots; k++) {
+                    if (!reference_matches(k, target, right))
+                        continue;
+                    if (dep->before)
+                        edges[j][k] = true;
+                    else
+                        edges[k][j] = true;
+                }
     }
     char error[2048];
     if (slots_resolve(slots, nslots, edges, error, sizeof(error)))
@@ -1021,9 +1361,7 @@ emit_header(FILE *out)
                                          last_known_slot + 1);
     for (size_t i = 0; i < nslots; i++) {
         char name[NAME_SIZE];
-        strcpy(name, slots[i].name);
-        for (char *p = name; *p; p++)
-            *p = (char)toupper((unsigned char)*p);
+        macro_name(name, slots[i].name);
         fprintf(out, "#define SLOT_%s %d\n", name, slots[i].number);
         fprintf(out, "#define DICE_STATIC_SLOT_%d 1\n", slots[i].number);
     }
@@ -1455,7 +1793,11 @@ usage(FILE *out)
         "       dice-roll [-I DIRECTORY ...] --query CONFIG.dice\n"
         "       dice-roll [-I DIRECTORY ...] --graph CONFIG.dice\n"
         "Imports search -I directories in order, then " DICE_SOURCE_DIR
-        "/src.\n",
+        "/src.\n"
+        "Use -I NAMESPACE=DIRECTORY to mount a namespace (e.g. "
+        "-Idice=src/mod).\n"
+        "The default dice namespace also searches " DICE_SOURCE_DIR
+        "/src/mod.\n",
         out);
 }
 
@@ -1490,9 +1832,7 @@ main(int argc, char **argv)
                                                  GRAPH;
         } else if (!strncmp(argv[i], "-I", 2) && (argv[i][2] || i + 1 < argc)) {
             const char *path = argv[i][2] ? argv[i] + 2 : argv[++i];
-            if (!*path || nimport_paths == COUNT(import_paths))
-                fail("invalid or too many import search paths");
-            import_paths[nimport_paths++] = path;
+            add_import_path(path);
         } else if ((!strcmp(argv[i], "--output") || !strcmp(argv[i], "-o")) &&
                    !directory && i + 1 < argc) {
             directory = argv[++i];
@@ -1512,11 +1852,13 @@ main(int argc, char **argv)
         return 1;
     }
     input_name = config;
+    add_import_path(DICE_SOURCE_DIR "/src");
+    add_import_path("dice=" DICE_SOURCE_DIR "/src/mod");
     for (size_t i = 0; i < COUNT(standard_ids); i++)
         add_id(standard_ids[i].name, standard_ids[i].id, standard_ids[i].chain,
                true);
     const char *ancestors[32];
-    read_config(input_name, ancestors, 0, false);
+    read_config(input_name, ancestors, 0, false, "");
     resolve();
     if (mode == ROLL)
         generate(directory, name ? name : "dice", depfile);
