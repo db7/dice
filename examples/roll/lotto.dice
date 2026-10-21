@@ -2,7 +2,7 @@
 ; This describes the boundary into ingress, not a complete Lotto runtime.
 ; Port the corresponding C handlers to dice.h and SLOT_* before linking.
 (import (dice self) (dice pthread_create) (dice pthread_mutex) (dice cxa))
-(plugins true)
+(callbacks true)
 
 ; Optional pins can preserve Lotto's existing ABI during migration:
 ; (events (EVENT_MUTEX_ACQUIRE 142)

@@ -15,7 +15,7 @@ dynamic(chain_id chain, type_id type, void *event, struct metadata *md)
     return record(event, 'b');
 }
 
-#if DICE_PLUGINS
+#if DICE_CALLBACKS
 static enum ps_err
 duplicate(chain_id chain, type_id type, void *event, struct metadata *md)
 {
@@ -43,7 +43,7 @@ int
 main(int argc, char **argv)
 {
     if (argc > 1) {
-#if DICE_PLUGINS
+#if DICE_CALLBACKS
         if (!strcmp(argv[1], "duplicates")) {
             bool strong = getenv("WITH_STRONG") != NULL;
             if (strong) {
@@ -115,10 +115,10 @@ main(int argc, char **argv)
         return 0;
     }
     char expected[64];
-#if DICE_PLUGINS
+#if DICE_CALLBACKS
     bool plugin      = getenv("WITH_PLUGIN") != NULL;
     bool strong      = getenv("WITH_STRONG") != NULL;
-    const char *tail = plugin && DICE_PLUGINS ? "TUV" : "";
+    const char *tail = plugin && DICE_CALLBACKS ? "TUV" : "";
     snprintf(expected, sizeof(expected), "%s%s",
              plugin ? (strong ? "ADBL" : "AxBy") : (strong ? "DL" : ""), tail);
     check(EVENT_TEST, expected, 0);
@@ -137,7 +137,7 @@ main(int argc, char **argv)
     /* A second, sparse chain must reach only its own handler. */
     struct trace other = {0};
     assert(ps_publish(CHAIN_OTHER, EVENT_OTHER, &other, NULL) == PS_OK);
-#if DICE_PLUGINS
+#if DICE_CALLBACKS
     assert(!strcmp(other.text, strong ? "O" : ""));
 #else
     assert(!strcmp(other.text, "O"));
@@ -150,7 +150,7 @@ main(int argc, char **argv)
         prefix[i + 1] = 0;
         check(EVENT_TEST, prefix, expected[i]);
     }
-#if DICE_PLUGINS
+#if DICE_CALLBACKS
     check(EVENT_OTHER, plugin ? (strong ? "aBW" : "aBz") : (strong ? "W" : ""),
           0);
 #else

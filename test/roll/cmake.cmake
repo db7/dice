@@ -22,7 +22,7 @@ file(COPY "${SOURCE}/src/mod/self.dice" DESTINATION "${root}/import path/dice")
 file(
   WRITE "${root}/foo.dice"
   [=[
-(plugins true)
+(callbacks true)
 (include "interceptors.dice")
 (import (app observer-routes))
 (import (extra))
@@ -41,7 +41,7 @@ file(WRITE "${root}/import path/app/types-ids.dice"
 file(
   WRITE "${root}/bar.dice"
   [=[
-(dice (schema 1) (plugins false)
+(dice (schema 1) (callbacks false)
   (include "interceptors.dice")
   (events (EVENT_USER 400))
   (module app (slot observer (number 64) (after (dice self))
@@ -51,7 +51,7 @@ file(
 file(
   WRITE "${root}/direct.dice"
   [=[
-(dice (schema 1) (plugins false)
+(dice (schema 1) (callbacks false)
   (slot source (produces (CHAIN_USER EVENT_USER)))
   (slot observer (consumes (CHAIN_USER EVENT_USER))))
 ]=])

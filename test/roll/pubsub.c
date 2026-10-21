@@ -15,7 +15,7 @@ PS_SUBSCRIBE(CHAIN_DICE_CONTROL, EVENT_DICE_READY, {
 })
 PS_SUBSCRIBE(CHAIN_LOW, EVENT_LOW, { ++nested_count; })
 
-#if DICE_PLUGINS
+#if DICE_CALLBACKS
 static int trace, stop;
 
     #define CALLBACK(NAME, DIGIT)                                              \
@@ -51,7 +51,7 @@ main(void)
     assert(init_count == 1 && ready_count == 1 && nested_count == 1);
     assert(ps_publish(CHAIN_LOW, EVENT_LOW, NULL, NULL) == PS_OK);
     assert(init_count == 1 && ready_count == 1 && nested_count == 2);
-#if DICE_PLUGINS
+#if DICE_CALLBACKS
     /* Exact callbacks precede wildcards at equal slots, in either registration
      * order. Callbacks remain separated by chain and event. */
     assert(ps_subscribe(CHAIN_HIGH, ANY_EVENT, wildcard, 20) == PS_OK);

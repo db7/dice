@@ -27,7 +27,7 @@ int dice_subscribe_abi(const char *configuration, chain_id chain, type_id type,
 #define DICE_SLOT_BOUND(C, E, S) V_JOIN(V_JOIN(V_JOIN(dice_bound, C), E), S)
 #define DICE_CONSUMES(C, E, S) V_JOIN(V_JOIN(V_JOIN(dice_consumes, C), E), S)
 
-#if DICE_PLUGINS
+#if DICE_CALLBACKS
 /* Registration must detect linked handlers without invoking user code. */
 #define DICE_BIND_SLOT(C, E, S) \
     DICE_HIDE bool DICE_SLOT_BOUND(C, E, S)(void) { return true; }
@@ -49,7 +49,7 @@ enum ps_err dice_publish_checked(int slot, chain_id chain, type_id type,
 #define ps_publish(CHAIN, TYPE, EVENT, MD) \
     dice_publish_checked(DICE_ROUTE_SLOT, CHAIN, TYPE, EVENT, MD)
 #define DICE_CHECK_CONSUMES(CHAIN, TYPE, SLOT) \
-    STATIC_ASSERT((DICE_PLUGINS && (SLOT) > DICE_LAST_KNOWN_SLOT) || \
+    STATIC_ASSERT((DICE_EXTENSION_CALLBACKS && (SLOT) > DICE_LAST_KNOWN_SLOT) || \
                   DICE_ROUTE_CONSUMES(SLOT, CHAIN, TYPE), \
                   "undeclared slot consumption");
 #else

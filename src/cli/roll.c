@@ -31,6 +31,7 @@ struct subscription {
     char chain_name[NAME_SIZE], event_name[NAME_SIZE], handler[NAME_SIZE];
     char slot_name[NAME_SIZE];
     int chain, event, slot;
+    bool callbacks;
 };
 
 static struct identifier ids[LIMIT];
@@ -53,8 +54,13 @@ static struct priority {
 } chain_priority, event_priority;
 static bool event_first;
 static int last_known_slot;
-static bool plugins = true;
-static unsigned settings_seen;
+static struct callback_policy {
+    char scope[NAME_SIZE];
+    bool enabled;
+} callback_policies[LIMIT];
+static size_t ncallback_policies;
+static bool callbacks, extension_callbacks;
+static bool mempool_seen;
 static uint64_t mempool_size = 200 * 1024 * 1024;
 static char config_id[32];
 static const char *input_name;
@@ -377,6 +383,43 @@ read_routes(const struct sxp *args, const char *slot, bool produces)
 }
 
 static void
+read_callbacks(const struct sxp *key, const char *scope)
+{
+    for (size_t i = 0; i < ncallback_policies; i++)
+        if (!strcmp(callback_policies[i].scope, scope))
+            fail("line %u: duplicate setting callbacks in %s", key->line,
+                 *scope ? scope : "top level");
+    const struct sxp *value = single(key);
+    if (!symbol(value, "true") && !symbol(value, "false"))
+        fail("line %u: callbacks expects true or false", value->line);
+    if (ncallback_policies == LIMIT)
+        fail("too many callback policies");
+    struct callback_policy *policy = &callback_policies[ncallback_policies++];
+    strcpy(policy->scope, scope);
+    policy->enabled = symbol(value, "true");
+}
+
+/* Resolve after all imports and reopened modules have contributed settings. */
+static bool
+callbacks_allowed(const char *scope)
+{
+    char current[NAME_SIZE];
+    strcpy(current, scope);
+    for (;;) {
+        for (size_t i = 0; i < ncallback_policies; i++)
+            if (!strcmp(callback_policies[i].scope, current))
+                return callback_policies[i].enabled;
+        if (!*current)
+            return true;
+        char *last = strrchr(current, '/');
+        if (last)
+            *last = 0;
+        else
+            *current = 0;
+    }
+}
+
+static void
 read_slot(const struct sxp *head, const char *scope)
 {
     char name[NAME_SIZE];
@@ -396,6 +439,8 @@ read_slot(const struct sxp *head, const char *scope)
             bit = 8;
         else if (symbol(key, "produces"))
             bit = 16;
+        else if (symbol(key, "callbacks"))
+            bit = 32;
         else
             fail("line %u: unknown slot field %s", key->line, key->text);
         if (seen & bit)
@@ -405,6 +450,8 @@ read_slot(const struct sxp *head, const char *scope)
             slots[index].forced = (int)number(single(key), 1, INT_MAX);
         else if (bit == 8 || bit == 16)
             read_routes(key->next, name, bit == 16);
+        else if (bit == 32)
+            read_callbacks(key, name);
         else {
             if (!key->next)
                 fail("line %u: empty ordering constraint", key->line);
@@ -442,20 +489,12 @@ read_order(const struct sxp *key, const char *scope)
 }
 
 static void
-read_setting(const struct sxp *key)
+read_mempool(const struct sxp *key)
 {
-    unsigned bit = symbol(key, "plugins") ? 1 : 2;
-    if (settings_seen & bit)
+    if (mempool_seen)
         fail("line %u: duplicate setting %s", key->line, key->text);
-    settings_seen |= bit;
-    const struct sxp *value = single(key);
-    if (bit == 1) {
-        if (!symbol(value, "true") && !symbol(value, "false"))
-            fail("line %u: plugins expects true or false", value->line);
-        plugins = symbol(value, "true");
-    } else {
-        mempool_size = memory_size(value);
-    }
+    mempool_seen = true;
+    mempool_size = memory_size(single(key));
 }
 
 static void
@@ -721,8 +760,10 @@ read_forms(const struct sxp *forms, const char *path, const char *ancestors[],
             schema = true;
         } else if (symbol(key, "events") || symbol(key, "chains")) {
             read_ids(key->next, symbol(key, "chains"));
-        } else if (symbol(key, "plugins") || symbol(key, "mempool_size")) {
-            read_setting(key);
+        } else if (symbol(key, "callbacks")) {
+            read_callbacks(key, scope);
+        } else if (symbol(key, "mempool_size")) {
+            read_mempool(key);
         } else if (symbol(key, "prioritize")) {
             read_priority(key);
         } else if (symbol(key, "slot")) {
@@ -903,9 +944,10 @@ resolve_routes(struct subscription *routes, size_t count, bool produces)
         if (!chain || !event || owner < 0)
             fail("unknown chain/event in %s: %s/%s", r->slot_name,
                  r->chain_name, r->event_name);
-        r->chain = chain->id;
-        r->event = event->id;
-        r->slot  = slots[owner].number;
+        r->chain     = chain->id;
+        r->event     = event->id;
+        r->slot      = slots[owner].number;
+        r->callbacks = callbacks_allowed(r->slot_name);
         if (!produces)
             snprintf(r->handler, sizeof(r->handler), "dice_slot_%d_%d_%d",
                      r->chain, r->event, r->slot);
@@ -966,6 +1008,10 @@ resolve(void)
     prepare_slots();
     resolve_routes(subs, nsubs, false);
     resolve_routes(prods, nprods, true);
+    extension_callbacks = callbacks_allowed("");
+    callbacks           = extension_callbacks;
+    for (size_t i = 0; i < nsubs; i++)
+        callbacks |= subs[i].callbacks;
     if (!chain_priority.seen) {
         const int defaults[] = {1, 4, 2, 3, 5, 6, 0};
         memcpy(chain_priority.ids, defaults, sizeof(defaults));
@@ -1005,8 +1051,9 @@ resolve(void)
         hash = hash_string(hash, entry);
     }
     for (size_t i = 0; i < nslots; i++) {
-        snprintf(entry, sizeof(entry), "slot:%.*s:%d", NAME_SIZE - 1,
-                 slots[i].name, slots[i].number);
+        snprintf(entry, sizeof(entry), "slot:%.*s:%d:%d", NAME_SIZE - 1,
+                 slots[i].name, slots[i].number,
+                 callbacks_allowed(slots[i].name));
         hash = hash_string(hash, entry);
     }
     for (size_t i = 0; i < nprods; i++) {
@@ -1014,7 +1061,8 @@ resolve(void)
                  prods[i].event, prods[i].slot);
         hash = hash_string(hash, entry);
     }
-    snprintf(entry, sizeof(entry), "%d:%" PRIu64, plugins, mempool_size);
+    snprintf(entry, sizeof(entry), "%d:%" PRIu64, extension_callbacks,
+             mempool_size);
     hash = hash_string(hash, entry);
     snprintf(config_id, sizeof(config_id), "roll-1-%016" PRIx64, hash);
 }
@@ -1347,15 +1395,15 @@ emit_header(FILE *out)
     fprintf(out,
             "#ifndef DICE_CHECK_ROUTES\n#define DICE_CHECK_ROUTES 0\n#endif\n"
             "#if DICE_CHECK_ROUTES\n#define DICE_CONFIG_ID \"%s-checked\"\n"
-            "#else\n#define DICE_CONFIG_ID \"%s\"\n#endif\n"
-            "#define DICE_PLUGINS %d\n",
-            config_id, config_id, plugins);
+            "#else\n#define DICE_CONFIG_ID \"%s\"\n#endif\n",
+            config_id, config_id);
     fprintf(out, "#define DICE_CONFIG_HASH 0x%sULL\n", config_id + 7);
     fprintf(out,
             "#define DICE_CALLBACKS %d\n"
+            "#define DICE_EXTENSION_CALLBACKS %d\n"
             "#define DICE_LAST_KNOWN_SLOT %d\n"
             "#define DICE_DEFAULT_PLUGIN_SLOT %d\n",
-            plugins, last_known_slot,
+            callbacks, extension_callbacks, last_known_slot,
             last_known_slot == INT_MAX ? 0 :
             last_known_slot < 10000    ? 10000 :
                                          last_known_slot + 1);
@@ -1387,7 +1435,7 @@ emit_header(FILE *out)
         "#if !defined(__APPLE__) && !defined(__NetBSD__)\n"
         "#define DICE_MEMPOOL_USE_MMAP\n#endif\n",
         out);
-    if (plugins) {
+    if (callbacks) {
         emit_callback_index(out, true);
         emit_callback_index(out, false);
     }
@@ -1461,6 +1509,8 @@ emit_known_callbacks(FILE *out)
         do {
             i++;
         } while (i < nsubs && subs[i].chain == chain && subs[i].slot == slot);
+        if (!subs[first].callbacks)
+            continue;
         fprintf(out,
                 "static struct type dice_callbacks_%d_%d[PS_TYPE_COUNT];\n",
                 chain, slot);
@@ -1509,6 +1559,8 @@ emit_known_callbacks(FILE *out)
             wildcard |= !subs[i].event;
             i++;
         } while (i < nsubs && subs[i].chain == chain && subs[i].slot == slot);
+        if (!subs[first].callbacks)
+            continue;
         fprintf(out, "    if (slot == %d && chain == %d) {\n", slot, chain);
         if (!wildcard) {
             fputs("        if (!(0", out);
@@ -1578,10 +1630,10 @@ emit_source(FILE *out, const char *name)
     emit_route_checks(out);
     emit_registry(out, false);
     emit_registry(out, true);
-    if (plugins) {
+    if (extension_callbacks)
         emit_event_ids(out);
+    if (callbacks)
         emit_known_callbacks(out);
-    }
     emit_dispatch(out);
 }
 
@@ -1863,8 +1915,8 @@ main(int argc, char **argv)
     if (mode == ROLL)
         generate(directory, name ? name : "dice", depfile);
     else if (mode == QUERY) {
-        printf("configuration %s\nplugins %s\n", config_id,
-               plugins ? "true" : "false");
+        printf("configuration %s\ncallbacks %s\n", config_id,
+               extension_callbacks ? "true" : "false");
         for (size_t k = 0; k < 2; k++) {
             bool chain = event_first ? k == 1 : k == 0;
             const struct priority *p =
@@ -1880,8 +1932,9 @@ main(int argc, char **argv)
             printf("%s %s %d\n", ids[i].chain ? "chain" : "event", ids[i].name,
                    ids[i].id);
         for (size_t i = 0; i < nslots; i++)
-            printf("slot %s %d%s\n", slots[i].name, slots[i].number,
-                   slots[i].forced >= 0 ? " forced" : "");
+            printf("slot %s %d%s callbacks %s\n", slots[i].name,
+                   slots[i].number, slots[i].forced >= 0 ? " forced" : "",
+                   callbacks_allowed(slots[i].name) ? "true" : "false");
         for (size_t i = 0; i < nsubs; i++)
             printf("consumes %s %d/%d\n", subs[i].slot_name, subs[i].chain,
                    subs[i].event);

@@ -1,4 +1,4 @@
 (dice
   (schema 1)
-  (plugins false)
+  (callbacks false)
   (include "modules.dice"))

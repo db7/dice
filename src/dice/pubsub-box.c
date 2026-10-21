@@ -3,7 +3,7 @@
 #include "tweaks.h"
 #include <dice/pubsub.h>
 
-#if !defined(DICE_ROLL_RUNTIME) || !DICE_PLUGINS
+#if !defined(DICE_ROLL_RUNTIME) || !DICE_EXTENSION_CALLBACKS
 
     #ifdef DICE_ROLL_RUNTIME
         #undef ps_publish
@@ -38,7 +38,7 @@ ps_publish(const chain_id chain, const type_id type, void *event,
 }
 
     #ifdef DICE_ROLL_RUNTIME
-/* Sealed generated runtimes require linked handlers for every consumer. */
+/* No registrations outside the declared callback slots. */
 DICE_HIDE int
 ps_subscribe_(chain_id chain, type_id type, ps_callback_f cb, int slot)
 {
@@ -111,4 +111,4 @@ ps_type_lookup(const char *name)
     return ps_registry_lookup_(false, name);
 }
     #endif /* legacy registration and registry overrides */
-#endif     /* legacy override or sealed configured runtime */
+#endif     /* legacy override or runtime without extension callbacks */

@@ -1,5 +1,5 @@
 (import (dice self) (dice pthread_create) (dice malloc))
-(plugins true)
+(callbacks true)
 (prioritize (chains INTERCEPT_EVENT CAPTURE_EVENT)
             (events EVENT_THREAD_START EVENT_THREAD_EXIT))
 

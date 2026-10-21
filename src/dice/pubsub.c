@@ -37,7 +37,7 @@ bool ps_dispatch_chain_on_(chain_id);
         #define PS_TYPE_INDEX(ID) (ID)
     #endif
 
-    #if !defined(DICE_ROLL_RUNTIME) || DICE_PLUGINS
+    #if !defined(DICE_ROLL_RUNTIME) || DICE_EXTENSION_CALLBACKS
 struct chain {
     struct type types[PS_TYPE_COUNT];
 };
@@ -168,7 +168,7 @@ ps_subscribe_list_(struct type *ev, chain_id chain, type_id type,
 }
     #endif
 
-    #if !defined(DICE_ROLL_RUNTIME) || DICE_PLUGINS
+    #if !defined(DICE_ROLL_RUNTIME) || DICE_EXTENSION_CALLBACKS
 static int
 ps_subscribe_type_(chain_id chain, type_id type, ps_callback_f cb, int slot,
                    bool any_type)
@@ -249,7 +249,7 @@ ps_callback_invoke_(struct sub *cur, const chain_id chain, const type_id type,
 }
     #endif
 
-    #if !defined(DICE_ROLL_RUNTIME) || DICE_PLUGINS
+    #if !defined(DICE_ROLL_RUNTIME) || DICE_EXTENSION_CALLBACKS
 static enum ps_err
 ps_callback_(const chain_id chain, const type_id type, void *event,
              struct metadata *md)
@@ -292,7 +292,7 @@ ps_dispatch_(const chain_id chain, const type_id type, void *event,
 }
 #endif
 
-#if !defined(DICE_ROLL_RUNTIME) || DICE_PLUGINS
+#if !defined(DICE_ROLL_RUNTIME) || DICE_EXTENSION_CALLBACKS
     #ifdef DICE_ROLL_RUNTIME
 DICE_HIDE enum ps_err
     #else
@@ -342,7 +342,7 @@ int(ps_subscribe)(chain_id chain, type_id type, ps_callback_f callback,
                   int slot)
 {
     #if DICE_CHECK_ROUTES
-    if (!(DICE_PLUGINS && slot > DICE_LAST_KNOWN_SLOT) &&
+    if (!(DICE_EXTENSION_CALLBACKS && slot > DICE_LAST_KNOWN_SLOT) &&
         !dice_consumes_allowed_(slot, chain, type))
         dice_route_error_("consumes", slot, chain, type);
     #endif
@@ -350,7 +350,7 @@ int(ps_subscribe)(chain_id chain, type_id type, ps_callback_f callback,
         (type != ANY_EVENT && !dice_event_valid_(type)) || !callback ||
         slot < 0)
         return PS_INVALID;
-    #if DICE_PLUGINS
+    #if DICE_CALLBACKS
     if (slot <= DICE_LAST_KNOWN_SLOT)
         return dice_subscribe_known_(chain, type, callback, slot);
     #endif
@@ -383,7 +383,7 @@ dice_publish_checked(int slot, chain_id chain, type_id type, void *event,
                      struct metadata *md)
 {
     if (!dice_event_valid_(type) || !dice_chain_valid_(chain) ||
-        (!(DICE_PLUGINS && slot > DICE_LAST_KNOWN_SLOT) &&
+        (!(DICE_EXTENSION_CALLBACKS && slot > DICE_LAST_KNOWN_SLOT) &&
          !dice_produces_allowed_(slot, chain, type)))
         dice_route_error_("produces", slot, chain, type);
     return dice_publish_internal_(chain, type, event, md);

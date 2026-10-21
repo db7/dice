@@ -3,7 +3,7 @@
 
 #include "trace.h"
 
-#if !DICE_PLUGINS
+#if !DICE_CALLBACKS
 PS_SUBSCRIBE_SLOT(CHAIN_FLOW, EVENT_TEST, SLOT_EARLY, {
     if (record(event, 'A') == PS_STOP_CHAIN)
         return PS_STOP_CHAIN;

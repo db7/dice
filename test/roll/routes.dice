@@ -1,7 +1,7 @@
 (dice
   (schema 1)
   (include "../../examples/roll/interceptors.dice")
-  (plugins true)
+  (callbacks true)
   (slot source
     (produces (CHAIN_TEST EVENT_TEST)
               (CHAIN_WILD EVENT_TEST EVENT_OTHER)))

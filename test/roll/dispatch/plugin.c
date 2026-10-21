@@ -34,7 +34,7 @@ register_fallbacks(void)
                         SLOT_LAST) == expected);
 }
 
-#if DICE_PLUGINS
+#if DICE_CALLBACKS
 /* Register out of order: the trailing phase must still run in slot order. */
 PS_SUBSCRIBE_SLOT(CHAIN_FLOW, EVENT_TEST, 14, { return record(event, 'U'); })
 PS_SUBSCRIBE_SLOT(CHAIN_FLOW, EVENT_TEST, 11, {

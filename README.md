@@ -131,7 +131,7 @@ done
 ```
 
 `DICE_ROLL_RUNTIME` is an internal core build flag. `pubsub-box.c` supplies
-sealed publication when plugins are disabled and compiles to an empty object
+publication without extension callbacks and compiles to an empty object
 otherwise. Do not add the old generated dispatchers or `registry.c`: the
 configured dispatchers supply the tables used by the rolled pubsub code.
 
@@ -208,7 +208,7 @@ The input is a sequence of declarative S-expressions:
 
 ```scheme
 (import (dice self) (dice malloc))
-(plugins true)
+(callbacks true)
 (mempool-size 200Mi)
 
 (slot capture
@@ -321,9 +321,36 @@ including the generated header or supplied by the build. Multiple slots in one
 source can use `PS_SUBSCRIBE_SLOT` with their respective generated `SLOT_*` names.
 Numeric slot values are assigned by the generator.
 
-`plugins` and `mempool-size` are top-level settings; there is no `runtime`
-wrapper. Each setting may be declared once across the configuration and its
-imports/includes. They default to `true` and `200Mi`, respectively.
+`callbacks` defaults to `true` and can appear at the top level, in a module,
+or inside a slot. The most specific setting wins: slot, nearest enclosing
+module, parent modules, then the top-level default.
+
+```scheme
+(callbacks false)
+(module app
+  (callbacks true)
+  (slot tracing)
+  (slot clock (callbacks false))
+  (module fast
+    (callbacks false)
+    (slot observer (callbacks true))))
+```
+
+Here `app/tracing` and `app/fast/observer` allow callback registration;
+`app/clock` does not. Allowing callbacks still permits linked direct handlers.
+Settings are resolved after imports/includes and reopened modules are loaded;
+declaration order does not change precedence. A scope may specify the setting
+once; repeated settings in the same scope are rejected. A file imported into a
+namespace contributes its setting to that namespace, not to the importing
+scope. Includes retain their enclosing scope.
+
+Extension slots have no namespace and follow the top-level setting. Thus the
+example permits callbacks only at its opted-in declared slots. `--query` shows
+the resolved setting for every slot.
+
+`mempool-size` remains a global setting, may be declared once across the
+configuration and its imports/includes, and defaults to `200Mi`. There is no
+`runtime` wrapper.
 
 `mempool-size` accepts a byte count or an integer with a binary suffix:
 `Ki`, `Mi`, `Gi`, or `Ti` (powers of 1024). For example, `200Mi` is 209715200
@@ -416,13 +443,13 @@ PS_SUBSCRIBE(CHAIN_APPLICATION, EVENT_REQUEST, {
 })
 ```
 
-Compile these files together with `dice.c`. With plugins enabled, each application
-consumer has a weak generated handler that invokes registered callbacks, or does
-nothing when none are registered. A linked strong handler replaces that callback
-wrapper, so its callbacks are not also called. With plugins disabled, every
-consumer needs a linked handler. Undeclared direct consumers fail at compile
-time. `produces` describes the topology; the C handler still performs the
-publication. Payload structures stay in application headers.
+Compile these files together with `dice.c`. A slot that allows callbacks has a
+weak generated handler for each consumer. It invokes registered callbacks, or
+does nothing when none are registered. A linked strong handler replaces that
+callback wrapper, so its callbacks are not also called. A slot that disables
+callbacks requires linked handlers for all its consumers. Undeclared direct
+consumers fail at compile time. `produces` describes the topology; the C handler
+still performs the publication. Payload structures stay in application headers.
 
 Strong handlers must participate in the same link as `dice.c`. Include their
 object files explicitly (CMake OBJECT targets work); a weak fallback alone will
@@ -441,18 +468,20 @@ use the public path; do not give those publishers `DICE_DISPATCH_MODULE`.
   `examples/roll/interceptors.dice` for the standard self, thread, and allocation
   routes. Names such as `(dice self)` identify slots; they do not select
   source files or add routes automatically.
-- `(plugins true)` is the default. Every declared consumer has a weak
-  callback fallback unless its handler is linked into the runtime. Declare slots
-  with `(slot monitor (consumes (CAPTURE_EVENT EVENT_THREAD_START)))`.
+- `(callbacks true)` is the default. Each consumer in a slot that allows
+  callbacks has a weak fallback unless its handler is linked into the runtime.
+  Declare slots with
+  `(slot monitor (consumes (CAPTURE_EVENT EVENT_THREAD_START)))`.
   Plugins include this runtime's generated `dice.h`, define `DICE_PLUGIN_MODULE`
   and `DICE_MODULE_SLOT` (for example, `SLOT_MONITOR`), and use `PS_SUBSCRIBE`
   or `ps_subscribe`. Linked modules use direct handlers by default.
   The OS loads plugins through `LD_PRELOAD` /
   `DYLD_INSERT_LIBRARIES`. Registration happens at startup, before worker threads
   publish events.
-- With `(plugins false)`, callback storage, weak fallback handlers and
-  the trailing callback phase are omitted. Every declared consumer handler must
-  be linked into the runtime; callback registration is rejected.
+- A slot with `(callbacks false)` has no callback storage or weak fallback
+  handlers and rejects callback registration. All its consumers require linked
+  handlers. Top-level `(callbacks false)` also omits the trailing callback
+  phase; modules and slots can still opt in for their declared subscriptions.
 - Standard Dice IDs remain fixed. Automatic event IDs start at 128 and chain IDs
   at 7, skipping occupied IDs in alphabetical name order. Explicit IDs may use
   any unused number in 1..65534. Adding automatic names can change assignments:
@@ -474,10 +503,11 @@ use the public path; do not give those publishers `DICE_DISPATCH_MODULE`.
   without an explicit declaration use the wildcard handler when present.
   `PS_STOP_CHAIN` stops both later direct handlers and plugins. Dynamic callback
   lists retain their existing delivery semantics.
-- `(include "modules/events.dice")` loads another `(dice ...)` expression,
-  relative to the including file. Included files may omit `schema`; define
-  `runtime` in only one file. Unknown forms, duplicate IDs/endpoints, invalid
-  references, and include cycles are rejected before generated files are replaced.
+- `(include "modules/events.dice")` loads another configuration file,
+  relative to the including file. Includes retain the enclosing namespace.
+  Included files may omit `schema`. Unknown forms, duplicate IDs/endpoints,
+  invalid references, and include cycles are rejected before generated files
+  are replaced.
 - Semicolons introduce comments. Strings support `\n`, `\r`, `\t`, `\\` and `\"`
   escapes. There is no evaluation, macro expansion, or executable configuration.
 - Configured slots using `DICE_MODULE_INIT` also declare
@@ -489,16 +519,18 @@ Cartesian expansion.
 
 Generated dispatchers link with separately compiled `src/dice/pubsub.c` and
 `src/dice/mempool.c`. Pubsub provides initialization, slot-ordered callback
-registration, delivery, and the public runtime API. Builds with `(plugins false)`
-also link `src/dice/pubsub-box.c` for dispatch-only delivery. Generation supplies
-the dispatcher, event/chain tables, and configuration checks, plus weak callback
-wrappers when plugins are enabled. Callback lists use compact indexes when
-public IDs are sparse.
+registration, delivery, and the public runtime API. Builds with top-level
+`(callbacks false)` use `src/dice/pubsub-box.c` for delivery without an extension
+callback phase. Declared callback fallbacks still run inside the dispatcher.
+Generation supplies the dispatcher, event/chain tables, and configuration checks,
+plus weak wrappers for slots that allow callbacks. Callback lists use compact
+indexes when public IDs are sparse.
 
 A declared chain/event/slot accepts at most one handler. Callback registration
 returns `PS_INVALID` if that subscription already has a callback or its dispatch
 position is occupied by a linked handler. Rejection leaves the existing handler
-unchanged. Slots above `DICE_LAST_KNOWN_SLOT` still accept multiple callbacks.
+unchanged. Slots above `DICE_LAST_KNOWN_SLOT` accept multiple callbacks when
+the top-level callback setting allows them.
 
 Runtime and plugins must use the same generated header. The header carries a
 configuration/template fingerprint, checked when a plugin loads and registers.
