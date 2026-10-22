@@ -40,11 +40,18 @@ static struct subscription prods[LIMIT];
 static struct slot slots[SLOT_LIMIT];
 static struct dependency {
     char slot[NAME_SIZE], reference[NAME_SIZE], scope[NAME_SIZE];
-    bool before, absolute, slot_absolute;
+    bool before, absolute, slot_absolute, wildcard;
 } deps[LIMIT];
+static struct requirement {
+    char reference[NAME_SIZE], scope[NAME_SIZE];
+    unsigned line;
+    bool absolute;
+} requirements[LIMIT];
+static size_t nrequirements;
 static char namespaces[LIMIT][NAME_SIZE];
 static size_t nnamespaces;
 static bool edges[SLOT_LIMIT][SLOT_LIMIT];
+static int edge_specificity[SLOT_LIMIT][SLOT_LIMIT];
 static size_t nids, nsubs, nprods, nslots, ndeps;
 static struct priority {
     char names[LIMIT][NAME_SIZE];
@@ -157,6 +164,8 @@ qualified_name(char *dst, const char *scope, const char *name)
 {
     char component[NAME_SIZE];
     name_copy(component, name);
+    if (!strcmp(component, "_"))
+        fail("_ is reserved for scoped ordering defaults");
     if (snprintf(dst, NAME_SIZE, "%s%s%s", scope, *scope ? "/" : "",
                  component) >= NAME_SIZE)
         fail("qualified name too long: %s/%s", scope, name);
@@ -350,6 +359,9 @@ read_reference(char *name, const struct sxp *ref)
 {
     if (ref->kind != SXP_LIST) {
         name_copy(name, atom(ref));
+        if (!strcmp(name, "_"))
+            fail("line %u: _ requires a standalone ordering default",
+                 ref->line);
         return;
     }
     if (!ref->child)
@@ -420,6 +432,22 @@ callbacks_allowed(const char *scope)
 }
 
 static void
+read_require(const struct sxp *key, const char *scope)
+{
+    if (!key->next)
+        fail("line %u: require expects at least one reference", key->line);
+    for (const struct sxp *ref = key->next; ref; ref = ref->next) {
+        if (nrequirements == LIMIT)
+            fail("too many requirements");
+        struct requirement *r = &requirements[nrequirements++];
+        read_reference(r->reference, ref);
+        strcpy(r->scope, scope);
+        r->line     = ref->line;
+        r->absolute = ref->kind == SXP_LIST;
+    }
+}
+
+static void
 read_slot(const struct sxp *head, const char *scope)
 {
     char name[NAME_SIZE];
@@ -441,6 +469,8 @@ read_slot(const struct sxp *head, const char *scope)
             bit = 16;
         else if (symbol(key, "callbacks"))
             bit = 32;
+        else if (symbol(key, "require"))
+            bit = 64;
         else
             fail("line %u: unknown slot field %s", key->line, key->text);
         if (seen & bit)
@@ -452,6 +482,8 @@ read_slot(const struct sxp *head, const char *scope)
             read_routes(key->next, name, bit == 16);
         else if (bit == 32)
             read_callbacks(key, name);
+        else if (bit == 64)
+            read_require(key, scope);
         else {
             if (!key->next)
                 fail("line %u: empty ordering constraint", key->line);
@@ -481,7 +513,9 @@ read_order(const struct sxp *key, const char *scope)
         fail("too many ordering constraints");
     struct dependency *dep = &deps[ndeps++];
     strcpy(dep->scope, scope);
-    read_reference(dep->slot, left);
+    dep->wildcard = symbol(left, "_");
+    if (!dep->wildcard)
+        read_reference(dep->slot, left);
     read_reference(dep->reference, left->next);
     dep->before        = symbol(key, "before");
     dep->slot_absolute = left->kind == SXP_LIST;
@@ -770,6 +804,8 @@ read_forms(const struct sxp *forms, const char *path, const char *ancestors[],
             read_slot(key, scope);
         } else if (symbol(key, "before") || symbol(key, "after")) {
             read_order(key, scope);
+        } else if (symbol(key, "require")) {
+            read_require(key, scope);
         } else if (symbol(key, "module")) {
             char nested[NAME_SIZE];
             qualified_name(nested, scope, atom(key->next));
@@ -884,7 +920,7 @@ resolve_reference(const char *name, const char *scope, bool absolute,
         if (slot >= 0 || find_namespace(resolved) >= 0)
             return slot;
         if (absolute || !*current)
-            fail("unknown slot or module in constraint: %s", name);
+            return -2; /* An optional ordering endpoint is absent. */
         char *last = strrchr(current, '/');
         if (last)
             *last = 0;
@@ -903,26 +939,68 @@ reference_matches(size_t slot, int target, const char *name)
            slots[slot].name[length] == '/';
 }
 
+static bool
+slot_in_scope(size_t slot, const char *scope)
+{
+    return !*scope || reference_matches(slot, -1, scope);
+}
+
+static void
+add_order(size_t before, size_t after, int specificity)
+{
+    if (specificity < edge_specificity[before][after])
+        return;
+    if (specificity > edge_specificity[before][after]) {
+        /* Override only this pair, in either direction. Equal-specificity
+         * contradictions retain both edges for the cycle diagnostic. */
+        edges[before][after] = edges[after][before] = false;
+        edge_specificity[before][after] = edge_specificity[after][before] =
+            specificity;
+    }
+    edges[before][after] = true;
+}
+
 static void
 prepare_slots(void)
 {
     qsort(slots, nslots, sizeof(*slots), slot_compare);
+    for (size_t i = 0; i < nrequirements; i++) {
+        const struct requirement *r = &requirements[i];
+        char resolved[NAME_SIZE];
+        if (resolve_reference(r->reference, r->scope, r->absolute, resolved) ==
+            -2)
+            fail(
+                "line %u: required slot or namespace is absent: %s "
+                "(scope %s)",
+                r->line, r->reference, *r->scope ? r->scope : "top level");
+    }
     for (size_t i = 0; i < ndeps; i++) {
         const struct dependency *dep = &deps[i];
         char left[NAME_SIZE], right[NAME_SIZE];
-        int owner =
-            resolve_reference(dep->slot, dep->scope, dep->slot_absolute, left);
         int target =
             resolve_reference(dep->reference, dep->scope, dep->absolute, right);
+        int owner = dep->wildcard ? -1 :
+                                    resolve_reference(dep->slot, dep->scope,
+                                                      dep->slot_absolute, left);
+        if (target == -2 || owner == -2)
+            continue;
+        int specificity = INT_MAX; /* Named constraints override defaults. */
+        if (dep->wildcard) {
+            specificity = *dep->scope ? 2 : 1;
+            for (const char *p = dep->scope; *p; p++)
+                specificity += *p == '/';
+        }
         for (size_t j = 0; j < nslots; j++)
-            if (reference_matches(j, owner, left))
+            if (dep->wildcard ? slot_in_scope(j, dep->scope) &&
+                                    !reference_matches(j, target, right) :
+                                reference_matches(j, owner, left))
                 for (size_t k = 0; k < nslots; k++) {
                     if (!reference_matches(k, target, right))
                         continue;
                     if (dep->before)
-                        edges[j][k] = true;
+                        add_order(j, k, specificity);
                     else
-                        edges[k][j] = true;
+                        add_order(k, j, specificity);
                 }
     }
     char error[2048];

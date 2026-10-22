@@ -13,6 +13,9 @@ if(NOT CMAKE_CROSSCOMPILING)
   add_test(NAME roll-namespaces COMMAND ${CMAKE_COMMAND}
            -DDICE=$<TARGET_FILE:dice-cli> -DWORK=${CMAKE_CURRENT_BINARY_DIR}
            -P ${CMAKE_CURRENT_SOURCE_DIR}/namespaces.cmake)
+  add_test(NAME roll-ordering COMMAND ${CMAKE_COMMAND}
+           -DDICE=$<TARGET_FILE:dice-cli> -DWORK=${CMAKE_CURRENT_BINARY_DIR}
+           -P ${CMAKE_CURRENT_SOURCE_DIR}/ordering.cmake)
   add_executable(roll-slots slots.c ${PROJECT_SOURCE_DIR}/src/cli/slots.c)
   target_include_directories(roll-slots PRIVATE ${PROJECT_SOURCE_DIR}/src/cli)
   add_test(NAME roll-slots COMMAND roll-slots)

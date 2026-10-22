@@ -215,10 +215,9 @@ fails("collide in generated macros" "${DICE}" --check "${root}/bad.dice")
 file(WRITE "${root}/bad.dice"
      "(module a (slot s (after (b)))) (module b (slot s (after (a))))\n")
 fails("cycle" "${DICE}" --check "${root}/bad.dice")
-foreach(config "(module)" "(module (bad))" "(slot s (before ()))"
-               "(slot s (after (missing module)))")
+foreach(config "(module)" "(module (bad))" "(slot s (before ()))")
   file(WRITE "${root}/bad.dice" "${config}\n")
-  fails("symbol|empty ordering|unknown slot" "${DICE}" --check
+  fails("symbol|empty ordering" "${DICE}" --check
         "${root}/bad.dice")
 endforeach()
 foreach(mapping "app=" "=somewhere" "../app=somewhere" "app//nested=somewhere"

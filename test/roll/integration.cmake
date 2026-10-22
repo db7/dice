@@ -265,7 +265,6 @@ bad_config("(dice (schema 1) (slot a (before b)) (slot b (before c)) (slot c (be
 bad_config("(dice (schema 1) (slot a (number 10) (before b)) (slot b (number 5)))" "forced number")
 bad_config("(dice (schema 1) (slot a (number 10) (before b)) (slot b (before c)) (slot c (number 11)))" "forced number|cannot fit")
 bad_config("(dice (schema 1) (slot a (number 2)) (slot b (number 2)))" "both force number")
-bad_config("(dice (schema 1) (slot a (before missing)))" "unknown slot")
 bad_config("(dice (schema 1) (events (EVENT_A 128) (EVENT_B 128)))" "ID collision")
 bad_config("(dice (schema 1) (events (EVENT_A 1)))" "ID collision")
 bad_config("(dice (schema 1) (events (ANY_EVENT 128)))" "duplicate or reserved identifier")

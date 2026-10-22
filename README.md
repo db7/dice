@@ -307,9 +307,51 @@ These constraints add to those in the original slot declarations. The same
 lexical/qualified reference rules apply. Both arguments may name namespaces,
 in which case every slot in one is ordered relative to every slot in the other.
 
+Use `_` as the first argument of a standalone rule to set a scoped default:
+
+```scheme
+(after _ (dice self))
+(import (lotto pct) (lotto guard))
+
+; In guard.dice, this overrides the inherited relationship with dice/self:
+(slot guard (before (dice self)))
+```
+
+The default applies to all slots in its namespace, including nested modules
+and imported definitions. A more deeply nested default overrides a parent
+default. Named constraints, including slot-local rules, override defaults.
+Resolution is independent of declaration/import order and applies separately
+to each pair of slots: overriding the relationship with `dice/self` preserves
+relationships with other targets. Opposing rules at the same specificity
+remain contradictory. Imports keep their namespace; a default inside a module
+applies to imported slots only if their namespace is inside that module.
+
+The target slot is excluded from `_`. If the target is a namespace, all its
+slots are excluded, so the default does not impose an order within that target.
+`_` is reserved and cannot be used as a slot or module name, as a target, or
+inside a slot-local ordering rule.
+
+Ordering references are optional: if either endpoint is absent, that rule
+contributes no edges. They never import definitions. To require a dependency,
+use `require` at the top level, in a module, or inside a slot:
+
+```scheme
+(require (dice self) (lotto))
+(slot observer
+  (require (dice self))
+  (after (dice self)))
+```
+
+Requirements use the same lexical/qualified lookup as ordering references and
+are checked after all inputs load. Each reference must name a declared slot or
+namespace; an empty namespace satisfies a namespace requirement. Requirements
+do not import definitions or impose ordering. A missing required dependency
+is an error.
+
 Namespace grouping does not imply contiguous slot numbers or an internal order.
-File/declaration order does not add ordering constraints. Conflicting constraints,
-including ordering a slot before a namespace containing itself, are errors.
+File/declaration order does not add ordering constraints. Cycles among the
+resolved constraints, including explicitly ordering a slot before a namespace
+containing itself, are errors.
 An empty namespace contributes no ordering edges.
 
 The generated C names flatten qualified paths: `(dice bar s1)` becomes
