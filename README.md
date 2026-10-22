@@ -603,7 +603,10 @@ it carries no slot context. Use a wrapper calling `ps_publish` normally, or
 `dice_publish_checked(slot, chain, type, event, md)` when passing an explicit slot.
 The configuration fingerprint also rejects mixing checked and unchecked modules.
 Without `DICE_CHECK_ROUTES`, per-slot route checks are not compiled in.
-Linked dispatch modules use the internal publication path; other publishers
+With callbacks disabled and route checks off, linked dispatch modules use an
+inline generated dispatcher for `PS_PUBLISH` calls with a constant chain. Known
+chain/event IDs can then fold at each publication site, including without LTO.
+Dynamic chains use the shared prioritized internal dispatcher. Other publishers
 use the public API. Registration still rejects
 invalid IDs, undeclared known-slot subscriptions, and incompatible headers.
 

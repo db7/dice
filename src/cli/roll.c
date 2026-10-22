@@ -1510,7 +1510,8 @@ emit_header(FILE *out)
     fputs("#ifdef DICE_ROLL_RUNTIME\n", out);
     fprintf(out, "#define MEMPOOL_SIZE UINT64_C(%" PRIu64 ")\n", mempool_size);
     fputs(
-        "#if !defined(__APPLE__) && !defined(__NetBSD__)\n"
+        "#if !defined(__APPLE__) && !defined(__NetBSD__) && "
+        "!defined(DICE_MEMPOOL_USE_MMAP)\n"
         "#define DICE_MEMPOOL_USE_MMAP\n#endif\n",
         out);
     if (callbacks) {
@@ -1526,6 +1527,46 @@ emit_header(FILE *out)
                 "struct metadata "
                 "*);\n",
                 subs[i].handler);
+    /* Sealed linked modules dispatch inline: constant chain and event IDs
+     * fold at each publication instead of in one shared dispatcher. */
+    fputs(
+        "#if !DICE_CALLBACKS && !DICE_CHECK_ROUTES && "
+        "defined(DICE_DISPATCH_MODULE) && !defined(DICE_PLUGIN_MODULE) && "
+        "!defined(DICE_ROLL_RUNTIME)\n"
+        "static inline __attribute__((always_inline)) enum ps_err\n"
+        "dice_dispatch_inline_(chain_id chain, type_id type, void *event, "
+        "struct metadata *md)\n{\n"
+        "    (void)type; (void)event; (void)md;\n"
+        "    switch (chain) {\n",
+        out);
+    for (size_t i = 0; i < nsubs; i++) {
+        if (i && subs[i].chain == subs[i - 1].chain)
+            continue;
+        fprintf(out, "    case %d: {\n", subs[i].chain);
+        emit_chain_body(out, subs[i].chain, false);
+        fputs("    }\n", out);
+    }
+    fputs(
+        "    default: return PS_OK;\n    }\n}\n"
+        "DICE_HIDE bool ps_initd_(void);\n"
+        "#if defined(__clang__)\n"
+        "DICE_HIDE extern bool ready_;\n"
+        "#endif\n"
+        "static inline __attribute__((always_inline)) enum ps_err\n"
+        "dice_publish_inline_(chain_id chain, type_id type, void *event, "
+        "struct metadata *md)\n{\n"
+        "#if defined(__clang__)\n"
+        "    if (unlikely(!ready_) && !ps_initd_())\n"
+        "#else\n"
+        "    if (unlikely(!ps_initd_()))\n"
+        "#endif\n"
+        "        return PS_STOP_CHAIN;\n"
+        "    log_debug(\"Dispatch %s/%s\", ps_chain_str(chain), "
+        "ps_type_str(type));\n"
+        "    enum ps_err err = dice_dispatch_inline_(chain, type, event, md);\n"
+        "    return err == PS_STOP_CHAIN ? err : PS_OK;\n}\n"
+        "#endif\n",
+        out);
     fputs("#endif /* DICE_GENERATED_H */\n", out);
 }
 

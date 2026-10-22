@@ -28,7 +28,7 @@ set(OPTIONS_memcpy -fno-builtin-memcpy -fno-builtin-memset
 # Runtime callbacks must stay uninstrumented even when a rolled library
 # inherits sanitizer options from another linked target.
 foreach(MODULE IN LISTS TSAN_MODULES)
-  set(OPTIONS_${MODULE} -fno-sanitize=all)
+  list(APPEND OPTIONS_${MODULE} -fno-sanitize=all)
 endforeach()
 
 set(TSAN_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/tsan.c)

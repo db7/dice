@@ -56,13 +56,20 @@ enum ps_err dice_publish_checked(int slot, chain_id chain, type_id type,
 #define DICE_ROUTE_CONTEXT(SLOT)
 #define DICE_CHECK_CONSUMES(CHAIN, TYPE, SLOT)
 #if defined(DICE_DISPATCH_MODULE) && !defined(DICE_PLUGIN_MODULE) && !defined(DICE_ROLL_RUNTIME) && DICE_ROLL_JOIN(DICE_STATIC_SLOT_, DICE_MODULE_SLOT)
-/* Linked release modules publish through the core's internal entry point.
- * Direct ps_publish calls and function pointers retain public validation. */
+/* Sealed modules fold constant-chain routing at the publication site.
+ * Dynamic chains retain the prioritized internal dispatcher. Direct ps_publish
+ * calls and function pointers retain public validation. */
 DICE_HIDE enum ps_err dice_publish_internal_(chain_id, type_id, void *,
                                              struct metadata *);
 #undef PS_PUBLISH
+#if !DICE_CALLBACKS
+#define PS_PUBLISH(CHAIN, TYPE, EVENT, MD) \
+    PS_PUBLISH_WITH_((__builtin_constant_p(CHAIN) ? dice_publish_inline_ : \
+                     dice_publish_internal_), CHAIN, TYPE, EVENT, MD)
+#else
 #define PS_PUBLISH(CHAIN, TYPE, EVENT, MD) \
     PS_PUBLISH_WITH_(dice_publish_internal_, CHAIN, TYPE, EVENT, MD)
+#endif
 #endif
 #endif
 

@@ -16,7 +16,8 @@ endfunction()
 set(out "${WORK}/dispatch")
 file(MAKE_DIRECTORY "${out}")
 file(READ "${FIXTURES}/dispatch/system.dice" config)
-set(flags -std=gnu11 -D_GNU_SOURCE -DDICE_ROLLED=1 -Wall -Wextra -Werror -fPIC "-I${out}"
+set(flags -std=gnu11 -D_GNU_SOURCE -DDICE_ROLLED=1 -DDICE_DISPATCH_MODULE
+          -DDICE_DISABLE_PUBSUB_CTOR_INIT -Wall -Wextra -Werror -fPIC "-I${out}"
           "-I${SOURCE}/include" "-I${SOURCE}/src/dice"
           "-I${SOURCE}/deps/libvsync/include")
 include("${FIXTURES}/core.cmake")
@@ -64,12 +65,14 @@ foreach(priority_order chains events)
         run("${CC}" ${build_flags} -c "${out}/dice.c" -o "${out}/dice.o")
         build_core(core_objects "${out}/dice.c" ${build_flags})
         run("${CC}" ${build_flags} -c "${FIXTURES}/dispatch/handlers.c" -o "${out}/handlers.o")
+        run("${CC}" ${build_flags} -c "${FIXTURES}/dispatch/publisher.c" -o "${out}/publisher.o")
         if(NOT callbacks)
           # A single missing consumer must fail the link, even with all others supplied.
           run("${CC}" ${build_flags} -DOMIT_MIDDLE -c
               "${FIXTURES}/dispatch/handlers.c" -o "${out}/partial.o")
           expect_failure("dice_slot_" "${CC}" ${build_flags}
-              "${FIXTURES}/dispatch/main.c" "${out}/dice.o" ${core_objects} "${out}/partial.o"
+              "${FIXTURES}/dispatch/main.c" "${out}/dice.o" ${core_objects}
+              "${out}/publisher.o" "${out}/partial.o"
               ${link} -o "${app}")
         endif()
         run("${CC}" ${build_flags} ${shared} ${plugin_flags}
@@ -84,7 +87,7 @@ foreach(priority_order chains events)
           if(NOT callbacks AND NOT strong)
             continue()
           endif()
-          set(objects "${out}/dice.o" ${core_objects})
+          set(objects "${out}/dice.o" ${core_objects} "${out}/publisher.o")
           set(env_args)
           if(strong)
             list(APPEND objects "${out}/handlers.o")

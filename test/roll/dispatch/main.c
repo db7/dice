@@ -31,6 +31,15 @@ duplicate(chain_id chain, type_id type, void *event, struct metadata *md)
 static void
 check(type_id type, const char *expected, char stop)
 {
+    /* A sealed module folds a constant chain at its publication site. The
+     * side-effecting chain expression must use the shared dispatcher and
+     * evaluate exactly once. Run these before the public entry to exercise
+     * lazy initialization when the pubsub constructor is disabled. */
+    for (int dynamic_chain = 0; dynamic_chain < 2; dynamic_chain++) {
+        struct trace trace = {.stop = stop};
+        publish_test(type, &trace, dynamic_chain);
+        assert(!strcmp(trace.text, expected));
+    }
     struct trace trace = {.stop = stop};
     enum ps_err result = ps_publish(CHAIN_FLOW, type, &trace, NULL);
     if (strcmp(trace.text, expected))

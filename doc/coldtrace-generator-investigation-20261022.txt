@@ -1,0 +1,239 @@
+Dice generator: inline routing, constant capture chains, and LTO
+2026-10-22
+
+Result
+  The combined Dice changes reduce LevelDB wall time by 20.86% with
+  ThinLTO and 17.15% with full LTO against the measured baseline. Scratchapixel
+  rendering time improves by 7.32% in both modes; whole-process differences
+  are within launch-time variation. These are local macOS arm64 results,
+  not a reproduction of the OpenHarmony measurements.
+
+Sources and environment
+  Measured Dice baseline: dice-roll-improvements,
+    635fb99ac0ee7567f68db9fdb83359a247bb444a.
+  Measured Coldtrace baseline: experiment/dice-roll,
+    342d98c4af2beb7b45fe88d44876342033c1e8e6.
+  The baseline includes the priority-helper always_inline change already in
+  those commits. No earlier, slower generator is used as the baseline.
+  macOS 26.5.1 (25F80), arm64, Apple Clang 21.0.0 (clang-2100.1.1.101).
+  Fresh Release builds, -O3 -DNDEBUG, explicit -flto=thin or -flto=full on
+  runtime compilation and linking. Actual flags and library/header hashes
+  are recorded in metadata.json. Route checks and callbacks are disabled;
+  the 200 MiB pool, modules, self-box/mempool-box, and event priorities match.
+  Measured generator, module template, self, and module CMake sources were
+  checked byte for byte against the final Dice working tree.
+  After these measurements, dice-roll and dice-roll-improvements were
+  rebased onto upstream/main at 1efd7b6. The measured working files were
+  preserved exactly. The slow-path split in item 3 below is now inherited
+  from upstream; it is not an additional change in the optimization commit.
+
+Selected changes
+  1. Generate a static always_inline dispatcher in dice.h for sealed linked
+     modules. PS_PUBLISH selects it when the chain is a compile-time
+     constant. Dynamic chains retain the prioritized internal dispatcher.
+     Direct ps_publish calls and function pointers retain public validation.
+     Callback configurations, plugins, checked builds, and runtime core
+     publications keep their existing paths.
+  2. Inline self_publish_ and self_handle_before_/after_/event_ for sealed,
+     unchecked rolled builds. This preserves constant CAPTURE chain IDs
+     through the publication, rather than building a generic all-chain
+     switch inside an out-of-line self_publish_.
+  3. Keep retired-thread recovery, allocation, caching, and SELF_INIT
+     publication in a noinline get_or_create_self_slow_. The hot lookup
+     consists of pthread_getspecific and a conditional slow-path call.
+     Retired-thread lookup and the creation/publication order are preserved.
+  4. Guard the generated DICE_MEMPOOL_USE_MMAP definition and append
+     -fno-sanitize=all to OPTIONS_tsan/OPTIONS_stacktrace instead of replacing
+     embedder flags. The benchmark does not add -fno-stack-protector.
+
+  The generated header preserves initialization suppression, slot order,
+  exact-event precedence over a wildcard at the same slot, early stopping,
+  debug publication logging, and the sealed dispatch return convention.
+  The shared prioritized dispatcher remains available for dynamic routing.
+
+Relationship to coldtrace/dice-roll-findings.html
+  The report supplies the simpler, stronger optimization: inline header
+  dispatch together with constant chains in self. Its experiment also
+  included Dice PR #274 / 1efd7b6. According to the report, the Dice branch
+  was created before that change reached main, so the author cherry-picked
+  it for the comparison.
+  That exact commit was absent from the local Git objects during the initial
+  investigation, so the experiment used a local slow-path split. The later
+  rebase includes upstream's original commit. Comparing the two confirmed
+  that the lookup and creation logic match; comments and braces differ.
+
+  The missing prerequisite matters locally too. Without outlining the slow
+  path, the report's header/self changes leave self out of line in memory
+  hooks. With it, both LTO modes fold the memory dispatch and self handling
+  into __tsan_read8/__tsan_write8. Normal memory-hook calls then go directly
+  to pthread_getspecific and coldtrace_thread_append; initialization and
+  uncached-thread calls remain in conditional slow paths.
+  ThinLTO also folds stack entry handling into the hook and calls
+  coldtrace_thread_stack_push directly. Full LTO retains a capture consumer
+  call for that stack event; it does not retain the generic self dispatcher.
+
+Final LevelDB comparison: median seconds, 12 samples per variant
+  LTO        measured baseline  final patch     wall-time change
+  thin         1.963625           1.553973          -20.862%
+  full         1.864214           1.544426          -17.154%
+
+  Paired bootstrap 95% intervals, resampling complete rounds, 10,000 draws:
+    ThinLTO: -21.110% to -20.517%.
+    Full LTO: -17.574% to -17.078%.
+  These intervals describe within-run variation, not cross-machine results.
+
+Scratchapixel comparison: medians, 24 samples per variant
+  LTO       current whole ms   final whole ms   current render ms   final render ms
+  thin          28.803            28.686             2.741505          2.540710
+  full          28.638            28.944             2.747585          2.546355
+
+  Render changes: thin -7.324% [-7.717%, -7.011%];
+                  full -7.324% [-7.669%, -6.957%].
+  Whole-process changes: thin -0.409% [-1.811%, +2.255%];
+                         full +1.070% [-0.884%, +3.177%].
+  There is no established whole-process Scratchapixel speedup here.
+
+Method and validation
+  Reuse the retained optimized, TSAN-instrumented workload executables from
+  /tmp/coldtrace-lto-20261022. Application binaries are identical across
+  variants and have no application LTO. LevelDB uses 1,000,000 keys,
+  100,000 random reads and one worker. Scratchapixel renders one 640x480
+  frame with 3,156 triangles. The retained rendering source correction
+  described in the earlier reports is unchanged.
+  nowrites measurements keep event processing, trace buffering, and stack
+  tracking enabled while disabling disk writes. Each run has a separate
+  trace path. Hyperfine measures the whole process through the existing
+  benchmark Makefiles. Render-loop timing is recorded separately.
+  Two warmups per variant, rotating/reversed execution order, no discarded
+  samples, and no builds or tests concurrent with measured timings.
+
+  Fresh 100-read LevelDB traces from the final variants match the baseline
+  worker event counts and complete stack-depth histogram: 142,786 entries,
+  including 90,074 reads and 49,363 writes; 141,282 entries have nonempty
+  stacks, with maximum depth 13. Main-thread startup traces are not assumed
+  identical. Every measured Scratchapixel image matches SHA-256
+  5a52b6b092c8ba052983dfd95036e4262472b969658e77d076437a0700741f21.
+  All measured LevelDB runs exit successfully and find all 100,000 keys.
+
+  All 60 Dice tests pass in /tmp/dice-generator-investigation-20261022.
+  The expanded roll-dispatch-callback test also passes after adding a
+  publisher compiled inside the runtime. It exercises constant and
+  side-effecting dynamic chain expressions, single evaluation, lazy
+  initialization with the pubsub constructor disabled, wildcard precedence,
+  early stops, both priority orders, checked/unchecked builds, callbacks,
+  and non-LTO/LTO builds. The CMake fixture checks that both shared modules
+  and the rolled-module catalog preserve embedder compile options.
+  A preprocessing check confirms that a predefined mmap macro survives
+  the generated non-Apple path without a redefinition warning.
+
+  The combined final Dice + self-box linkage build passes 46/51 Coldtrace
+  tests on macOS. A separate baseline Dice build with the same linkage fix
+  fails exactly the same five tests: trace_atomic, trace_hb_check_2,
+  trace_memcpy, trace_pthread_cond_wait, and trace_read_write_size. Thus no
+  additional Coldtrace test failures were observed from the Dice changes.
+  Both full-suite logs are retained as final-check-tests.log and
+  baseline-check-tests.log. The Linux 58/58 result in the supplied report
+  is the report author's result, not a result reproduced locally.
+
+Tradeoffs and limits
+  Library file size grows from 146,208 to 180,416 bytes under ThinLTO
+  (+23.4%) and from 137,888 to 171,888 bytes under full LTO (+24.7%).
+  The public API and its validation remain present. This is intentionally
+  scoped to linked sealed modules; callback dispatch is not optimized by
+  the new header path. GCC, Linux and OpenHarmony were not tested locally.
+  Existing ../coldtrace/build has an empty CMAKE_BUILD_TYPE cache entry;
+  all timings above use separate, explicitly configured Release builds.
+
+Other investigated policies
+  Header-visible priority routes alone slightly improved ThinLTO but did
+  not improve full LTO. Separate chain entry points and moving a whole
+  dispatcher into the header without preserving self's chain were slower.
+  Specialized wildcard wrappers plus header priority routes and forced
+  wrapper inlining improved LevelDB by 9.68% ThinLTO / 4.75% full LTO in
+  an earlier 12-sample comparison. That prototype is superseded by the
+  simpler selected patch; wildcard clones are not added to the generator.
+  Outlining the slow path alone did not improve the generated baseline
+  in the four-sample screening batch. The useful result is the combination
+  of outlining, header routing, and preserving constant capture chains.
+
+Other suggestions from the supplied report
+  mmap redefinition: fixed in Dice, so Coldtrace can retain its build flag.
+  module option overwriting: fixed in Dice, with CMake fixture coverage.
+  self-box linkage: applied in ../coldtrace. The retained
+    coldtrace-self-box-fix-20261022.patch moves
+    self-box.c from shared runtime objects onto the tracer target alone.
+    The checker then exports self accessors. A temporary baseline checkout
+    reproduces both hb-check crashes; this change makes trace_hb_check pass
+    and lets trace_hb_check_2 run far enough to report atomic-index errors.
+    It does not establish that all macOS checker failures are fixed.
+  public API exports: retained, because they provide generated runtime
+    validation/publication and plugin ABI checks; hiding them globally
+    would change that contract.
+  Apple-only config_ready guard: unchanged; required on this platform.
+    A Linux/OHOS-specific removal needs startup validation there.
+  SSH versus HTTPS submodule URL: unchanged; this is a repository access
+    choice and does not affect generated runtime performance.
+
+Artifacts and reproduction
+  /tmp/coldtrace-generator-20261022
+    refs.json: exact baseline source revisions.
+    source/: frozen baseline sources; final-source/: measured final sources.
+    final-dice.patch: working-tree implementation and test changes.
+    report-source.patch: patch extracted from the supplied HTML report.
+    experiment.py, report_build.py, final_build.py: exact preparation/builds.
+    measure.py, analyze.py: validation, timing, metadata, bootstrap analysis.
+    metadata.json: compile/link flags, artifact hashes, sizes and hot calls.
+    *.asm: final linked disassembly for every investigated variant.
+    results/final-*: raw final samples, execution schedule and statistics.
+    results/final-scratch-*: corresponding Scratchapixel measurements.
+    results/validation.json and validation logs: worker trace validation.
+    Other results retain the exploratory comparisons and earlier prototype.
+    final-check-source/: combined new Dice and self-box linkage test checkout.
+  Trace paths use the short /tmp/ctgen-20261022 symlink to results because
+  Coldtrace reserves trace filenames inside a fixed 128-byte path buffer.
+  The benchmark helpers reuse /tmp/coldtrace-lto-20261022 workload artifacts.
+
+  Dice checks:
+    cmake -S . -B /tmp/dice-generator-investigation-20261022 -DCMAKE_BUILD_TYPE=Release
+    cmake --build /tmp/dice-generator-investigation-20261022 -j4
+    ctest --test-dir /tmp/dice-generator-investigation-20261022 --output-on-failure -j4
+  Final runtime rebuild and validation:
+    python3.13 /tmp/coldtrace-generator-20261022/final_build.py
+    python3.13 /tmp/coldtrace-generator-20261022/measure.py validate current-thin current-full final-thin final-full
+  To build Coldtrace against these local Dice changes, configure
+  it with -DDICE_SOURCE=/Users/diogo/Workspaces/dice and an explicit Release
+  build type. The recorded Dice submodule pin is unchanged.
+  Timing schedules are recorded with every sample; final uses 12 LevelDB
+  rounds and final-scratch uses 24 Scratchapixel rounds across those four
+  variants. analyze.py computes the comparisons from the retained samples.
+
+Follow-up: are always_inline attributes still needed on priority helpers?
+  Removed only always_inline from the two priority-selector emission sites
+  in a temporary source copy, retaining static inline. The new header
+  dispatchers and self helpers keep their attributes. Generated headers are
+  byte-identical to the selected patch; generated C differs only in those
+  two declarations. Both ThinLTO and full LTO were rebuilt and validated.
+
+  The memory hooks retain the same instruction sequence apart from relocated
+  imported-call addresses. They bypass the priority helpers through the new
+  constant-chain header path. However, dice_dispatch_4_ survives as an
+  out-of-line function in both variants without forced priority inlining;
+  the shared dispatcher now calls it. Thus the attributes still affect
+  dynamic/public dispatch even though they no longer enable the hot path.
+
+  Eight interleaved LevelDB samples per variant, with two warmups:
+    mode    with always_inline    ordinary inline    time change
+    thin        1.551527              1.555941          +0.284%
+    full        1.541205              1.542392          +0.077%
+  Paired bootstrap 95% intervals: thin [-0.065%, +0.584%],
+  full [-0.277%, +0.392%]. There is no established timing difference.
+  Worker event counts/depth histograms and image hashes match. Callback and
+  checked dispatch performance was not measured in this follow-up.
+
+  Keep the priority attributes for the shared path: removing them provides
+  no demonstrated benefit and reintroduces a dispatch call there. They are
+  not required for the selected Coldtrace constant-chain memory fast path.
+  Artifacts: priority_auto.py, priority-auto.patch, priority-auto-*.asm,
+  priority-auto-code-comparison.json, and results/priority-auto-* under the
+  same /tmp/coldtrace-generator-20261022 directory. No implementation changes
+  were made during this follow-up; the priority attributes remain in Dice.
