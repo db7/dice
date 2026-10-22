@@ -443,9 +443,11 @@ checked in its given order. Reordering the fields with the same lists prioritize
 the same chain/event pairs. All unmatched routes share one fallback function
 containing chain/event switches. Wildcard subscribers participate in each
 hot-event path, with exact subscriptions taking precedence at the same slot.
-The compiler decides whether to inline either path and remains free to transform
-the emitted comparisons. Handler slot order, wildcard matching, callback
-delivery, and early termination are unchanged.
+The generated helpers for preferred chains or events use `always_inline` to
+remove their dispatch call boundaries. The compiler decides whether to inline
+subscriber handlers and the shared fallback, and remains free to transform the
+emitted comparisons. Handler slot order, wildcard matching, callback delivery,
+and early termination are unchanged.
 
 Both fields are optional. Without `chains`, the preferred order is the legacy
 builtin order `1, 4, 2, 3, 5, 6, 0`. Without `events`, preferred chains retain

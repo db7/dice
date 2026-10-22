@@ -1302,7 +1302,7 @@ static void
 emit_event_dispatch(FILE *out, int event)
 {
     fprintf(out,
-            "static enum ps_err\n"
+            "static inline __attribute__((always_inline)) enum ps_err\n"
             "dice_dispatch_event_%d_(chain_id chain, void *event, "
             "struct metadata *md)\n{\n"
             "    const type_id type = %d;\n"
@@ -1323,8 +1323,8 @@ emit_event_dispatch(FILE *out, int event)
 static void
 emit_dispatch(FILE *out)
 {
-    /* Separate preferred paths from the shared fallback, and let the compiler
-     * decide which calls to inline. */
+    /* Inline priority selectors into the outer dispatch. Leave handler and
+     * shared fallback inlining to the compiler. */
     bool fallback = event_priority.seen && nsubs;
     for (size_t i = 0; i < nsubs; i++) {
         if (!prioritized(&chain_priority, subs[i].chain))
@@ -1358,7 +1358,7 @@ emit_dispatch(FILE *out)
                 (i && subs[i].chain == subs[i - 1].chain))
                 continue;
             fprintf(out,
-                    "static enum ps_err\n"
+                    "static inline __attribute__((always_inline)) enum ps_err\n"
                     "dice_dispatch_%d_(type_id type, void *event, "
                     "struct metadata *md)\n{\n",
                     subs[i].chain);
