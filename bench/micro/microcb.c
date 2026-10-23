@@ -17,7 +17,7 @@
 
 int x = 0;
 int y = 0;
-PS_SUBSCRIBE(CAPTURE_EVENT, EVENT_MA_AWRITE, {
+PS_SUBSCRIBE(CHAIN_CAPTURE_EVENT, EVENT_MA_AWRITE, {
     struct ma_awrite_event *ev = EVENT_PAYLOAD(ev);
     x += ev->val.u64;
     y++;

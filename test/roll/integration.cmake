@@ -282,7 +282,7 @@ bad_config("(dice (schema 1) (prioritize (slots first)))" "unknown prioritize fi
 bad_config("(dice (schema 1) (prioritize (chains CHAIN_UNKNOWN)))" "unknown prioritized chain")
 bad_config("(dice (schema 1) (prioritize (events EVENT_UNKNOWN)))" "unknown prioritized event")
 bad_config("(dice (schema 1) (prioritize (events ANY_EVENT)))" "wildcard")
-bad_config("(dice (schema 1) (prioritize (chains CAPTURE_EVENT CAPTURE-EVENT)))" "duplicate prioritized chain")
+bad_config("(dice (schema 1) (prioritize (chains CHAIN_CAPTURE_EVENT CHAIN-CAPTURE-EVENT)))" "duplicate prioritized chain")
 bad_config("(dice (schema 1) (prioritize (events EVENT_MALLOC EVENT-MALLOC)))" "duplicate prioritized event")
 bad_config("(dice (schema 1) (prioritize (chains) (chains)))" "duplicate prioritize field")
 bad_config("(dice (schema 1) (prioritize (events) (events)))" "duplicate prioritize field")
@@ -365,7 +365,7 @@ set(priority_flags ${flags})
 list(REMOVE_ITEM priority_flags "-I${out}")
 list(APPEND priority_flags "-I${priority_out}")
 file(WRITE "${root}/prioritized.dice" [=[(dice (schema 1)
-  (prioritize (chains CHAIN_TEST INTERCEPT_EVENT CAPTURE_EVENT)
+  (prioritize (chains CHAIN_TEST CHAIN_INTERCEPT_EVENT CHAIN_CAPTURE_EVENT)
               (events EVENT_TEST EVENT_MALLOC))
   (include "system.dice"))
 ]=])
@@ -405,7 +405,7 @@ run("${CC}" ${priority_flags} -c "${priority_out}/dice.c"
 # malloc event has no exact handler on CHAIN_TEST; its wildcard must still match.
 file(WRITE "${root}/prioritized.dice" [=[(dice (schema 1)
   (prioritize (events EVENT_TEST EVENT_MALLOC)
-              (chains CHAIN_TEST INTERCEPT_EVENT CAPTURE_EVENT))
+              (chains CHAIN_TEST CHAIN_INTERCEPT_EVENT CHAIN_CAPTURE_EVENT))
   (include "system.dice"))
 ]=])
 run("${DICE}" "${root}/prioritized.dice" -o "${priority_out}")
@@ -452,14 +452,14 @@ run("${CC}" ${priority_flags} -c "${priority_out}/dice.c"
 file(WRITE "${root}/priority-layer.dice"
      "(dice (prioritize (chains CHAIN_TEST) (events EVENT_TEST)))\n")
 file(WRITE "${root}/prioritized.dice" [=[(dice (schema 1)
-  (prioritize (chains INTERCEPT_EVENT) (events EVENT_MALLOC))
+  (prioritize (chains CHAIN_INTERCEPT_EVENT) (events EVENT_MALLOC))
   (include "priority-layer.dice")
   (include "system.dice"))
 ]=])
 run("${DICE}" --query "${root}/prioritized.dice")
 assert_contains("${result_text}" "prioritize chains 7\nprioritize events 128\n")
-foreach(priority "(chains INTERCEPT_EVENT)" "(events EVENT_MALLOC)" "(chains) (events)"
-                 "(events EVENT_MALLOC) (chains INTERCEPT_EVENT)")
+foreach(priority "(chains CHAIN_INTERCEPT_EVENT)" "(events EVENT_MALLOC)" "(chains) (events)"
+                 "(events EVENT_MALLOC) (chains CHAIN_INTERCEPT_EVENT)")
   file(WRITE "${root}/prioritized.dice"
        "(dice (schema 1) (include \"system.dice\") (include \"priority-layer.dice\") (prioritize ${priority}))\n")
   run("${DICE}" "${root}/prioritized.dice" -o "${priority_out}")
@@ -620,7 +620,7 @@ foreach(header IN LISTS headers)
 endforeach()
 run("${CC}" -D_GNU_SOURCE -DDICE_ROLLED=1 -E -dM
     "-I${SOURCE}/include" "-I${SOURCE}/deps/libvsync/include" "${out}/ids.c")
-if(result_text MATCHES "#define (EVENT_[A-Z_]+|CHAIN_DICE_CONTROL|ANY_EVENT|CAPTURE_[A-Z_]+|INTERCEPT_(EVENT|BEFORE|AFTER)) ")
+if(result_text MATCHES "#define (EVENT_[A-Z_]+|CHAIN_DICE_CONTROL|ANY_EVENT|CHAIN_CAPTURE_[A-Z_]+|CHAIN_INTERCEPT_(EVENT|BEFORE|AFTER)) ")
   message(FATAL_ERROR "Legacy IDs leaked into generated mode")
 endif()
 # Compact event indexing must work with separately compiled modules and plugins.

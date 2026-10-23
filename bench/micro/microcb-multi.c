@@ -13,7 +13,7 @@
 
 int x = 0;
 int y = 0;
-PS_SUBSCRIBE(CAPTURE_EVENT, EVENT_MA_AWRITE, {
+PS_SUBSCRIBE(CHAIN_CAPTURE_EVENT, EVENT_MA_AWRITE, {
     struct ma_awrite_event *ev = EVENT_PAYLOAD(ev);
     x += ev->val.u64;
     y++;
@@ -26,7 +26,7 @@ struct thread_state {
 
 struct thread_state key_;
 
-PS_SUBSCRIBE(CAPTURE_EVENT, EVENT_MA_AREAD, {
+PS_SUBSCRIBE(CHAIN_CAPTURE_EVENT, EVENT_MA_AREAD, {
     struct ma_aread_event *ev  = EVENT_PAYLOAD(ev);
     struct thread_state *state = SELF_TLS(md, &key_);
     state->x += ev->val.u64;

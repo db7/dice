@@ -14,8 +14,8 @@
     (produces (CHAIN_OUTPUT EVENT_TEST)))
   (slot observer
     (consumes (CHAIN_OUTPUT EVENT_TEST)
-              (CAPTURE_BEFORE EVENT_MALLOC)
-              (CAPTURE_EVENT EVENT_THREAD_START)))
+              (CHAIN_CAPTURE_BEFORE EVENT_MALLOC)
+              (CHAIN_CAPTURE_EVENT EVENT_THREAD_START)))
   (slot wildcard
     (consumes (CHAIN_WILD ANY_EVENT))
     (produces (CHAIN_OUTPUT ANY_EVENT))))

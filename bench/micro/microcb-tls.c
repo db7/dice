@@ -19,7 +19,7 @@ struct thread_state {
 
 struct thread_state key_;
 
-PS_SUBSCRIBE(CAPTURE_EVENT, EVENT_MA_AREAD, {
+PS_SUBSCRIBE(CHAIN_CAPTURE_EVENT, EVENT_MA_AREAD, {
     struct ma_aread_event *ev  = EVENT_PAYLOAD(ev);
     struct thread_state *state = SELF_TLS(md, &key_);
     state->x += ev->val.u64;

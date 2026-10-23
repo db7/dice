@@ -45,7 +45,7 @@ Your observer selects its slot before including the generated header:
 #define DICE_MODULE_SLOT SLOT_OBSERVER
 #include "dice.h"
 
-PS_SUBSCRIBE(CAPTURE_BEFORE, EVENT_MALLOC, {
+PS_SUBSCRIBE(CHAIN_CAPTURE_BEFORE, EVENT_MALLOC, {
     struct malloc_event *allocation = event;
     /* Handle the allocation. */
 })
@@ -214,7 +214,7 @@ The input is a sequence of declarative S-expressions:
 (slot capture
   (after (dice self))
   (before process)
-  (consumes (CAPTURE_BEFORE EVENT_MALLOC))
+  (consumes (CHAIN_CAPTURE_BEFORE EVENT_MALLOC))
   (produces (CHAIN_APPLICATION EVENT_REQUEST)))
 
 (slot process
@@ -424,7 +424,7 @@ dispatch code:
 
 ```scheme
 (prioritize
-  (chains INTERCEPT_EVENT CAPTURE_EVENT)
+  (chains CHAIN_INTERCEPT_EVENT CHAIN_CAPTURE_EVENT)
   (events EVENT_MA_READ EVENT_MA_WRITE))
 ```
 
@@ -435,7 +435,7 @@ put `events` first:
 ```scheme
 (prioritize
   (events EVENT_MA_READ EVENT_MA_WRITE)
-  (chains INTERCEPT_EVENT CAPTURE_EVENT INTERCEPT_BEFORE CAPTURE_BEFORE))
+  (chains CHAIN_INTERCEPT_EVENT CHAIN_CAPTURE_EVENT CHAIN_INTERCEPT_BEFORE CHAIN_CAPTURE_BEFORE))
 ```
 
 This checks events first, then chains within each preferred event. Each list is
@@ -479,7 +479,7 @@ Slots can request inlining of their linked C handlers:
 ```scheme
 (slot observer
   (option inline)
-  (consumes (CAPTURE_EVENT EVENT_MA_READ EVENT_MA_WRITE)))
+  (consumes (CHAIN_CAPTURE_EVENT EVENT_MA_READ EVENT_MA_WRITE)))
 ```
 
 `(option inline)` requests inlining of the generated `dice_slot_*` wrappers.
@@ -535,7 +535,7 @@ use the public path; do not give those publishers `DICE_DISPATCH_MODULE`.
 - `(callbacks true)` is the default. Each consumer in a slot that allows
   callbacks has a weak fallback unless its handler is linked into the runtime.
   Declare slots with
-  `(slot monitor (consumes (CAPTURE_EVENT EVENT_THREAD_START)))`.
+  `(slot monitor (consumes (CHAIN_CAPTURE_EVENT EVENT_THREAD_START)))`.
   Plugins include this runtime's generated `dice.h`, define `DICE_PLUGIN_MODULE`
   and `DICE_MODULE_SLOT` (for example, `SLOT_MONITOR`), and use `PS_SUBSCRIBE`
   or `ps_subscribe`. Linked modules use direct handlers by default.

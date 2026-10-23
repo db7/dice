@@ -25,7 +25,7 @@ run_time(void *_)
     while (!vatomic_read_rlx(&stop)) {
         ev.val.u64++;
         vatomic_inc_rlx(&count);
-        intercept(INTERCEPT_EVENT, EVENT_MA_AREAD, &ev, 0);
+        intercept(CHAIN_INTERCEPT_EVENT, EVENT_MA_AREAD, &ev, 0);
     }
 
     return 0;
@@ -40,7 +40,7 @@ run_count(void *_)
     for (size_t i = 0; i < 1000000000; i++) {
         ev.val.u64 = i;
         vatomic_inc_rlx(&count);
-        intercept(INTERCEPT_EVENT, EVENT_MA_AREAD, &ev, 0);
+        intercept(CHAIN_INTERCEPT_EVENT, EVENT_MA_AREAD, &ev, 0);
     }
 
     return 0;

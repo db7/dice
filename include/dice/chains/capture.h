@@ -5,13 +5,13 @@
 #ifndef DICE_CAPTURE_H
 #define DICE_CAPTURE_H
 
-/* The Self module subscribes for all events from INTERCEPT_* chains and
+/* The Self module subscribes for all events from CHAIN_INTERCEPT_* chains and
  * republishes them the in following chains with additional "self" metadata such
  * as ID and TLS pointers. */
 #ifndef DICE_ROLLED
-    #define CAPTURE_EVENT  4
-    #define CAPTURE_BEFORE 5
-    #define CAPTURE_AFTER  6
+    #define CHAIN_CAPTURE_EVENT  4
+    #define CHAIN_CAPTURE_BEFORE 5
+    #define CHAIN_CAPTURE_AFTER  6
 #endif
 
 #endif /* DICE_CAPTURE_H */

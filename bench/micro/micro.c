@@ -24,7 +24,7 @@ run_time(void *_)
     (void)_;
     while (!vatomic_read_rlx(&start)) {}
     while (!vatomic_read_rlx(&stop)) {
-        PS_PUBLISH(INTERCEPT_EVENT, EVENT_MA_AWRITE, 0, 0);
+        PS_PUBLISH(CHAIN_INTERCEPT_EVENT, EVENT_MA_AWRITE, 0, 0);
         vatomic_inc_rlx(&count);
     }
 
@@ -37,7 +37,7 @@ run_count(void *_)
     (void)_;
     while (!vatomic_read_rlx(&start)) {}
     for (size_t i = 0; i < 1000000000; i++) {
-        PS_PUBLISH(INTERCEPT_EVENT, EVENT_MA_AWRITE, 0, 0);
+        PS_PUBLISH(CHAIN_INTERCEPT_EVENT, EVENT_MA_AWRITE, 0, 0);
         vatomic_inc_rlx(&count);
     }
 

@@ -22,8 +22,8 @@ MODS=${MODS}:${BUILD}/mod/dice-self.so
 # threads to register with the self module
 MODS=${MODS}:${BUILD}/mod/dice-pthread_create.so
 
-# Finally, we add our logger, which subscribes for CAPTURE_BEFORE and
-# CAPTURE_AFTER chains of EVENT_MALLOC.
+# Finally, we add our logger, which subscribes for CHAIN_CAPTURE_BEFORE and
+# CHAIN_CAPTURE_AFTER chains of EVENT_MALLOC.
 MODS=${MODS}:./libmalloc_logger.so
 
 exec env LD_PRELOAD=${MODS} "$@"
