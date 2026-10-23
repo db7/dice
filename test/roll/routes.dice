@@ -3,19 +3,19 @@
   (include "../../examples/roll/interceptors.dice")
   (callbacks true)
   (slot source
-    (produces (CHAIN_TEST EVENT_TEST)
+    (publishes (CHAIN_TEST EVENT_TEST)
               (CHAIN_WILD EVENT_TEST EVENT_OTHER)))
   (slot first
     (before later)
-    (consumes (CHAIN_TEST EVENT_TEST))
-    (produces (CHAIN_MIDDLE EVENT_TEST)))
+    (subscribes (CHAIN_TEST EVENT_TEST))
+    (publishes (CHAIN_MIDDLE EVENT_TEST)))
   (slot later
-    (consumes (CHAIN_MIDDLE EVENT_TEST))
-    (produces (CHAIN_OUTPUT EVENT_TEST)))
+    (subscribes (CHAIN_MIDDLE EVENT_TEST))
+    (publishes (CHAIN_OUTPUT EVENT_TEST)))
   (slot observer
-    (consumes (CHAIN_OUTPUT EVENT_TEST)
+    (subscribes (CHAIN_OUTPUT EVENT_TEST)
               (CHAIN_CAPTURE_BEFORE EVENT_MALLOC)
               (CHAIN_CAPTURE_EVENT EVENT_THREAD_START)))
   (slot wildcard
-    (consumes (CHAIN_WILD ANY_EVENT))
-    (produces (CHAIN_OUTPUT ANY_EVENT))))
+    (subscribes (CHAIN_WILD ANY_EVENT))
+    (publishes (CHAIN_OUTPUT ANY_EVENT))))

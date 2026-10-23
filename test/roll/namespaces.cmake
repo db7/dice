@@ -35,13 +35,13 @@ set(root "${WORK}/namespaces")
 file(REMOVE_RECURSE "${root}")
 file(MAKE_DIRECTORY "${root}/src/dice" "${root}/src/mod")
 file(WRITE "${root}/src/dice/foo.dice"
-     "(slot s1 (consumes (CHAIN_CAPTURE_EVENT EVENT_MA_READ)))\n")
+     "(slot s1 (subscribes (CHAIN_CAPTURE_EVENT EVENT_MA_READ)))\n")
 file(
   WRITE "${root}/src/mod/bar.dice"
   [=[
 (module bar
   (slot s1 (after (dice s1))
-    (consumes (CHAIN_CAPTURE_EVENT EVENT_MA_WRITE))))
+    (subscribes (CHAIN_CAPTURE_EVENT EVENT_MA_WRITE))))
 ]=])
 set(paths "-I${root}/src" "-Idice=${root}/src/mod")
 file(

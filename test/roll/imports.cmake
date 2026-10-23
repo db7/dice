@@ -29,7 +29,7 @@ file(MAKE_DIRECTORY "${first}/app" "${first}/dice" "${second}/app")
 # Bare forms and the legacy wrapper describe the same runtime and ABI.
 set(body [=[(import (dice self) (dice malloc) (dice pthread_create))
 (slot observer (after (dice self))
-  (consumes (CHAIN_CAPTURE_EVENT EVENT_THREAD_START)))
+  (subscribes (CHAIN_CAPTURE_EVENT EVENT_THREAD_START)))
 (prioritize (events EVENT_THREAD_START) (chains CHAIN_CAPTURE_EVENT CHAIN_INTERCEPT_EVENT))
 ]=])
 file(WRITE "${root}/bare.dice" "${body}")

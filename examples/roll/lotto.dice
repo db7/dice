@@ -13,26 +13,26 @@
 (slot lotto-mutex
   (after (dice self))
   (before lotto-ingress)
-  (consumes
+  (subscribes
     (CHAIN_CAPTURE_BEFORE EVENT_MUTEX_LOCK EVENT_MUTEX_TRYLOCK
                     EVENT_MUTEX_UNLOCK)
     (CHAIN_LOTTO_TRAP EVENT_MUTEX_TRYACQUIRE))
-  (produces
+  (publishes
     (CHAIN_INGRESS_EVENT EVENT_MUTEX_ACQUIRE EVENT_MUTEX_TRYACQUIRE
                          EVENT_MUTEX_RELEASE)))
 
 (slot lotto-cxa
   (after (dice self))
   (before lotto-ingress)
-  (consumes
+  (subscribes
     (CHAIN_CAPTURE_BEFORE EVENT_CXA_GUARD_ACQUIRE)
     (CHAIN_CAPTURE_AFTER EVENT_CXA_GUARD_ACQUIRE))
-  (produces
+  (publishes
     (CHAIN_INGRESS_BEFORE EVENT_CXA_GUARD_ACQUIRE)
     (CHAIN_INGRESS_AFTER EVENT_CXA_GUARD_ACQUIRE)))
 
 (slot lotto-ingress
-  (consumes
+  (subscribes
     (CHAIN_INGRESS_EVENT ANY_EVENT)
     (CHAIN_INGRESS_BEFORE ANY_EVENT)
     (CHAIN_INGRESS_AFTER ANY_EVENT)))

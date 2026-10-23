@@ -32,7 +32,7 @@ set(routes
 (dice (schema 1)
   (include "types-ids.dice")
   (slot observer (number 32) (after (dice self))
-    (consumes (CHAIN_CAPTURE_BEFORE EVENT_MALLOC)
+    (subscribes (CHAIN_CAPTURE_BEFORE EVENT_MALLOC)
               (CHAIN_CAPTURE_EVENT EVENT_THREAD_START EVENT_THREAD_EXIT))))
 ]=])
 file(WRITE "${root}/import path/app/observer-routes.dice" "${routes}")
@@ -45,15 +45,15 @@ file(
   (include "interceptors.dice")
   (events (EVENT_USER 400))
   (module app (slot observer (number 64) (after (dice self))
-    (consumes (CHAIN_CAPTURE_BEFORE EVENT_MALLOC)
+    (subscribes (CHAIN_CAPTURE_BEFORE EVENT_MALLOC)
               (CHAIN_CAPTURE_EVENT EVENT_THREAD_START EVENT_THREAD_EXIT)))))
 ]=])
 file(
   WRITE "${root}/direct.dice"
   [=[
 (dice (schema 1) (callbacks false)
-  (slot source (produces (CHAIN_USER EVENT_USER)))
-  (slot observer (consumes (CHAIN_USER EVENT_USER))))
+  (slot source (publishes (CHAIN_USER EVENT_USER)))
+  (slot observer (subscribes (CHAIN_USER EVENT_USER))))
 ]=])
 set(configure
     "${CMAKE_COMMAND}"

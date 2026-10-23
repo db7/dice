@@ -19,12 +19,12 @@ set(root "${WORK}/callbacks")
 set(out "${root}/generated")
 file(MAKE_DIRECTORY "${root}/app")
 file(WRITE "${root}/app/slots.dice" [=[
-(slot closed (number 10) (callbacks false) (consumes (CHAIN_FLOW ANY_EVENT)))
-(slot open (number 20) (consumes (CHAIN_FLOW EVENT_TEST ANY_EVENT)))
+(slot closed (number 10) (callbacks false) (subscribes (CHAIN_FLOW ANY_EVENT)))
+(slot open (number 20) (subscribes (CHAIN_FLOW EVENT_TEST ANY_EVENT)))
 (module nested
-  (slot closed (number 30) (consumes (CHAIN_FLOW ANY_EVENT)))
-  (slot reopened (number 40) (callbacks true) (consumes (CHAIN_FLOW ANY_EVENT))))
-(slot linked (number 60) (consumes (CHAIN_FLOW ANY_EVENT)))
+  (slot closed (number 30) (subscribes (CHAIN_FLOW ANY_EVENT)))
+  (slot reopened (number 40) (callbacks true) (subscribes (CHAIN_FLOW ANY_EVENT))))
+(slot linked (number 60) (subscribes (CHAIN_FLOW ANY_EVENT)))
 ]=])
 file(WRITE "${root}/policy.dice" [=[
 (module app
@@ -36,8 +36,8 @@ set(policy "(include \"policy.dice\")\n")
 set(common [=[
 (mempool-size 1Mi)
 (events EVENT_OTHER)
-(slot publisher (number 1) (produces (CHAIN_FLOW ANY_EVENT)))
-(slot top (number 50) (consumes (CHAIN_FLOW ANY_EVENT)))
+(slot publisher (number 1) (publishes (CHAIN_FLOW ANY_EVENT)))
+(slot top (number 50) (subscribes (CHAIN_FLOW ANY_EVENT)))
 ]=])
 
 set(flags -std=gnu11 -D_GNU_SOURCE -Wall -Wextra -Werror -fPIC
@@ -105,7 +105,7 @@ foreach(default true false)
       run("${CMAKE_COMMAND}" -E env "${preload}=${lib}:${mod}" "${app}")
       if(NOT default)
         if(checked)
-          fails("undeclared consumes" "${CMAKE_COMMAND}" -E env
+          fails("undeclared subscribes" "${CMAKE_COMMAND}" -E env
                 "${preload}=${lib}:${mod}" "${app}" extension)
         else()
           # PS_INVALID is nonzero; no callbacks may be registered in the tail.

@@ -214,12 +214,12 @@ The input is a sequence of declarative S-expressions:
 (slot capture
   (after (dice self))
   (before process)
-  (consumes (CHAIN_CAPTURE_BEFORE EVENT_MALLOC))
-  (produces (CHAIN_APPLICATION EVENT_REQUEST)))
+  (subscribes (CHAIN_CAPTURE_BEFORE EVENT_MALLOC))
+  (publishes (CHAIN_APPLICATION EVENT_REQUEST)))
 
 (slot process
-  (consumes (CHAIN_APPLICATION EVENT_REQUEST))
-  (produces (CHAIN_RESULTS EVENT_RESPONSE)))
+  (subscribes (CHAIN_APPLICATION EVENT_REQUEST))
+  (publishes (CHAIN_RESULTS EVENT_RESPONSE)))
 ```
 
 Imports select files from logical directories, which supply slot namespaces.
@@ -400,11 +400,11 @@ bytes, the default pool size. The supported range is `4Ki` through `1Ti`,
 inclusive. These suffixes apply only to memory sizes; IDs and slot numbers
 remain plain integers.
 
-Events and chains are inferred from every `consumes` and `produces` endpoint.
+Events and chains are inferred from every `subscribes` and `publishes` endpoint.
 Their declarations are optional: use `(events (EVENT_RESPONSE 200))` or
 `(chains (CHAIN_RESULTS 12))` to pin IDs, or `(events EVENT_UNUSED)`
 to declare an otherwise unused name. An endpoint can list multiple event types:
-`(consumes (CHAIN_APPLICATION EVENT_REQUEST EVENT_RESPONSE))`.
+`(subscribes (CHAIN_APPLICATION EVENT_REQUEST EVENT_RESPONSE))`.
 
 Hyphens and underscores are equivalent in configuration symbols: `dice-self`
 and `dice_self` refer to the same slot, and `EVENT-MALLOC` means `EVENT_MALLOC`.
@@ -479,7 +479,7 @@ Slots can request inlining of their linked C handlers:
 ```scheme
 (slot observer
   (option inline)
-  (consumes (CHAIN_CAPTURE_EVENT EVENT_MA_READ EVENT_MA_WRITE)))
+  (subscribes (CHAIN_CAPTURE_EVENT EVENT_MA_READ EVENT_MA_WRITE)))
 ```
 
 `(option inline)` requests inlining of the generated `dice_slot_*` wrappers.
@@ -512,7 +512,7 @@ weak generated handler for each consumer. It invokes registered callbacks, or
 does nothing when none are registered. A linked strong handler replaces that
 callback wrapper, so its callbacks are not also called. A slot that disables
 callbacks requires linked handlers for all its consumers. Undeclared direct
-consumers fail at compile time. `produces` describes the topology; the C handler
+consumers fail at compile time. `publishes` describes the topology; the C handler
 still performs the publication. Payload structures stay in application headers.
 
 Strong handlers must participate in the same link as `dice.c`. Include their
@@ -535,7 +535,7 @@ use the public path; do not give those publishers `DICE_DISPATCH_MODULE`.
 - `(callbacks true)` is the default. Each consumer in a slot that allows
   callbacks has a weak fallback unless its handler is linked into the runtime.
   Declare slots with
-  `(slot monitor (consumes (CHAIN_CAPTURE_EVENT EVENT_THREAD_START)))`.
+  `(slot monitor (subscribes (CHAIN_CAPTURE_EVENT EVENT_THREAD_START)))`.
   Plugins include this runtime's generated `dice.h`, define `DICE_PLUGIN_MODULE`
   and `DICE_MODULE_SLOT` (for example, `SLOT_MONITOR`), and use `PS_SUBSCRIBE`
   or `ps_subscribe`. Linked modules use direct handlers by default.
@@ -555,7 +555,7 @@ use the public path; do not give those publishers `DICE_DISPATCH_MODULE`.
   the generated dispatcher in slot order, mixing strong handlers and callback
   fallbacks. Unknown plugin slots must be greater than `N` and run afterward in
   the existing ordered callback lists. `N` is global across chains and includes
-  produces-only slots. Registrations into undeclared gaps at or below `N` are
+  publishes-only slots. Registrations into undeclared gaps at or below `N` are
   rejected in all builds.
 - When `DICE_MODULE_SLOT` is omitted, plugins use `DICE_DEFAULT_PLUGIN_SLOT`:
   10000 or `N + 1`, whichever is larger. If `N` is `INT_MAX`, no unknown slot is
@@ -575,7 +575,7 @@ use the public path; do not give those publishers `DICE_DISPATCH_MODULE`.
 - Semicolons introduce comments. Strings support `\n`, `\r`, `\t`, `\\` and `\"`
   escapes. There is no evaluation, macro expansion, or executable configuration.
 - Configured slots using `DICE_MODULE_INIT` also declare
-  `(consumes (CHAIN_DICE_CONTROL EVENT_DICE_INIT))`.
+  `(subscribes (CHAIN_DICE_CONTROL EVENT_DICE_INIT))`.
 
 Dispatch switches contain only explicitly subscribed event cases. Wildcards use
 the default branch, so a plugin publishing a declared event does not require a
@@ -604,8 +604,8 @@ runtime and its plugins together after changing the configuration.
 
 For test builds, compile the runtime, application modules, and plugins with
 `-DDICE_CHECK_ROUTES=1`. Publications through `ps_publish` or `PS_PUBLISH` must
-match the calling slot's `produces`; callback registration through `ps_subscribe`
-must match the receiving slot's `consumes`. A violation terminates the process
+match the calling slot's `publishes`; callback registration through `ps_subscribe`
+must match the receiving slot's `subscribes`. A violation terminates the process
 with the slot, chain, and event in the diagnostic, even if the caller ignores
 return codes. `PS_SUBSCRIBE` in a checked plugin also checks its declaration at
 compile time. Static consumers are checked at compile time in all builds.
@@ -616,7 +616,7 @@ any declared chain/event; they have no configured routes to check.
 Inside `PS_SUBSCRIBE_SLOT`, publications use that
 handler's explicit slot. Helper functions outside a handler use the translation
 unit's `DICE_MODULE_SLOT`. An `ANY_EVENT` endpoint allows all declared event types
-on that chain; an exact consumption does not permit a wildcard subscription.
+on that chain; an exact subscription does not permit a wildcard subscription.
 
 Checked builds reject calls through the raw `ps_publish` function pointer because
 it carries no slot context. Use a wrapper calling `ps_publish` normally, or
@@ -639,7 +639,7 @@ build/src/cli/dice-roll --graph system.dice > topology.dot
 dot -Tsvg topology.dot -o topology.svg
 ```
 
-`query` prints resolved IDs, slots, and their consumed/produced endpoints. `graph`
+`query` prints resolved IDs, slots, and their subscribed/published endpoints. `graph`
 emits these flows and dashed slot ordering edges in DOT format. It does not infer
 publications or forwarding from arbitrary C handler code. SVG rendering uses
 optional Graphviz.

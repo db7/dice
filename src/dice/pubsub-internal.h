@@ -41,8 +41,8 @@ DICE_HIDE extern const size_t ps_event_count_;
 DICE_HIDE int dice_subscribe_known_(chain_id, type_id, ps_callback_f, int);
     #endif
     #if DICE_CHECK_ROUTES
-DICE_HIDE bool dice_consumes_allowed_(int, chain_id, type_id);
-DICE_HIDE bool dice_produces_allowed_(int, chain_id, type_id);
+DICE_HIDE bool dice_subscribes_allowed_(int, chain_id, type_id);
+DICE_HIDE bool dice_publishes_allowed_(int, chain_id, type_id);
     #endif
 #endif
 #endif

@@ -343,8 +343,8 @@ int(ps_subscribe)(chain_id chain, type_id type, ps_callback_f callback,
 {
     #if DICE_CHECK_ROUTES
     if (!(DICE_EXTENSION_CALLBACKS && slot > DICE_LAST_KNOWN_SLOT) &&
-        !dice_consumes_allowed_(slot, chain, type))
-        dice_route_error_("consumes", slot, chain, type);
+        !dice_subscribes_allowed_(slot, chain, type))
+        dice_route_error_("subscribes", slot, chain, type);
     #endif
     if (!dice_chain_valid_(chain) ||
         (type != ANY_EVENT && !dice_event_valid_(type)) || !callback ||
@@ -370,7 +370,7 @@ enum ps_err(ps_publish)(chain_id chain, type_id type, void *event,
 {
     #if DICE_CHECK_ROUTES
     /* Function pointers cannot carry the caller's slot. */
-    dice_route_error_("produces (missing slot context)", -1, chain, type);
+    dice_route_error_("publishes (missing slot context)", -1, chain, type);
     #endif
     if (unlikely(type == ANY_EVENT || type >= MAX_TYPES || chain >= MAX_CHAINS))
         return PS_INVALID;
@@ -384,8 +384,8 @@ dice_publish_checked(int slot, chain_id chain, type_id type, void *event,
 {
     if (!dice_event_valid_(type) || !dice_chain_valid_(chain) ||
         (!(DICE_EXTENSION_CALLBACKS && slot > DICE_LAST_KNOWN_SLOT) &&
-         !dice_produces_allowed_(slot, chain, type)))
-        dice_route_error_("produces", slot, chain, type);
+         !dice_publishes_allowed_(slot, chain, type)))
+        dice_route_error_("publishes", slot, chain, type);
     return dice_publish_internal_(chain, type, event, md);
 }
     #endif

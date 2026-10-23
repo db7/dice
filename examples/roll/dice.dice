@@ -3,11 +3,11 @@
 (prioritize (chains CHAIN_INTERCEPT_EVENT CHAIN_CAPTURE_EVENT)
             (events EVENT_THREAD_START EVENT_THREAD_EXIT))
 
-; Events and chains are inferred from consumes/produces.
+; Events and chains are inferred from subscribes/publishes.
 (slot observer
   (after (dice self))
-  (consumes (CHAIN_CAPTURE_BEFORE EVENT_MALLOC)
+  (subscribes (CHAIN_CAPTURE_BEFORE EVENT_MALLOC)
             (CHAIN_CAPTURE_EVENT EVENT_THREAD_START EVENT_THREAD_EXIT)))
 
 (slot preload-observer
-  (consumes (CHAIN_CAPTURE_BEFORE EVENT_MALLOC)))
+  (subscribes (CHAIN_CAPTURE_BEFORE EVENT_MALLOC)))

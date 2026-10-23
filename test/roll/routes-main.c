@@ -32,12 +32,12 @@ main(int argc, char **argv)
         volatile chain_id chain = CHAIN_OUTPUT;
         volatile type_id type   = EVENT_TEST;
         volatile int slot       = SLOT_OBSERVER;
-        if (!strcmp(argv[1], "produces")) {
+        if (!strcmp(argv[1], "publishes")) {
             PS_PUBLISH(chain, type, &n, NULL);
         } else if (!strcmp(argv[1], "event")) {
             type = EVENT_OTHER;
             (void)ps_publish(CHAIN_TEST, type, &n, NULL);
-        } else if (!strcmp(argv[1], "consumes")) {
+        } else if (!strcmp(argv[1], "subscribes")) {
             chain = CHAIN_TEST;
             (void)ps_subscribe(chain, type, callback, slot);
         } else if (!strcmp(argv[1], "any")) {

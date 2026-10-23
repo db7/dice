@@ -35,7 +35,7 @@ int dice_subscribe_abi(const char *configuration, chain_id chain, type_id type,
 #define DICE_INLINE_HANDLER_ __attribute__((always_inline))
 #endif
 #define DICE_SLOT_BOUND(C, E, S) V_JOIN(V_JOIN(V_JOIN(dice_bound, C), E), S)
-#define DICE_CONSUMES(C, E, S) V_JOIN(V_JOIN(V_JOIN(dice_consumes, C), E), S)
+#define DICE_SUBSCRIBES(C, E, S) V_JOIN(V_JOIN(V_JOIN(dice_subscribes, C), E), S)
 
 #if DICE_CALLBACKS
 /* Registration must detect linked handlers without invoking user code. */
@@ -58,13 +58,13 @@ enum ps_err dice_publish_checked(int slot, chain_id chain, type_id type,
                                 void *event, struct metadata *md);
 #define ps_publish(CHAIN, TYPE, EVENT, MD) \
     dice_publish_checked(DICE_ROUTE_SLOT, CHAIN, TYPE, EVENT, MD)
-#define DICE_CHECK_CONSUMES(CHAIN, TYPE, SLOT) \
+#define DICE_CHECK_SUBSCRIBES(CHAIN, TYPE, SLOT) \
     STATIC_ASSERT((DICE_EXTENSION_CALLBACKS && (SLOT) > DICE_LAST_KNOWN_SLOT) || \
-                  DICE_ROUTE_CONSUMES(SLOT, CHAIN, TYPE), \
-                  "undeclared slot consumption");
+                  DICE_ROUTE_SUBSCRIBES(SLOT, CHAIN, TYPE), \
+                  "undeclared slot subscription");
 #else
 #define DICE_ROUTE_CONTEXT(SLOT)
-#define DICE_CHECK_CONSUMES(CHAIN, TYPE, SLOT)
+#define DICE_CHECK_SUBSCRIBES(CHAIN, TYPE, SLOT)
 #if defined(DICE_DISPATCH_MODULE) && !defined(DICE_PLUGIN_MODULE) && !defined(DICE_ROLL_RUNTIME) && DICE_ROLL_JOIN(DICE_STATIC_SLOT_, DICE_MODULE_SLOT)
 /* Sealed modules fold constant-chain routing at the publication site.
  * Dynamic chains retain the prioritized internal dispatcher. Direct ps_publish
@@ -94,7 +94,7 @@ static void DICE_CTOR dice_validate_header_(void)
 /* The generated non-inline prototypes keep opted-in C inline wrappers as
  * strong external definitions, including in builds without LTO. */
 #define PS_SUBSCRIBE_SLOT(CHAIN, TYPE, SLOT, ...) \
-    STATIC_ASSERT(DICE_CONSUMES(CHAIN, TYPE, SLOT), "undeclared slot consumption"); \
+    STATIC_ASSERT(DICE_SUBSCRIBES(CHAIN, TYPE, SLOT), "undeclared slot subscription"); \
     DICE_BIND_SLOT(CHAIN, TYPE, SLOT) \
     static inline DICE_HANDLER_ATTRIBUTES(SLOT) enum ps_err PS_HANDLER(CHAIN, TYPE, SLOT)( \
         chain_id, type_id, void *, struct metadata *); \
@@ -105,7 +105,7 @@ static void DICE_CTOR dice_validate_header_(void)
 #define DICE_ROLL_CONSTRUCTOR()
 #else
 #define PS_SUBSCRIBE_SLOT(CHAIN, TYPE, SLOT, ...) \
-    DICE_CHECK_CONSUMES(CHAIN, TYPE, SLOT) \
+    DICE_CHECK_SUBSCRIBES(CHAIN, TYPE, SLOT) \
     PS_HANDLER_DEF(CHAIN, TYPE, SLOT, DICE_ROUTE_CONTEXT(SLOT) __VA_ARGS__) \
     static void DICE_CTOR V_JOIN(PS_HANDLER(CHAIN, TYPE, SLOT), register_)(void) \
     { \

@@ -375,7 +375,7 @@ read_reference(char *name, const struct sxp *ref)
 }
 
 static void
-read_routes(const struct sxp *args, const char *slot, bool produces)
+read_routes(const struct sxp *args, const char *slot, bool publishes)
 {
     for (const struct sxp *n = args; n; n = n->next) {
         const struct sxp *head = form(n);
@@ -383,10 +383,10 @@ read_routes(const struct sxp *args, const char *slot, bool produces)
             fail("line %u: chain %s requires at least one event", n->line,
                  head->text);
         for (const struct sxp *event = head->next; event; event = event->next) {
-            size_t *count = produces ? &nprods : &nsubs;
+            size_t *count = publishes ? &nprods : &nsubs;
             if (*count == LIMIT)
                 fail("too many routes");
-            struct subscription *r = &(produces ? prods : subs)[(*count)++];
+            struct subscription *r = &(publishes ? prods : subs)[(*count)++];
             strcpy(r->slot_name, slot);
             name_copy(r->chain_name, atom(head));
             name_copy(r->event_name, atom(event));
@@ -463,9 +463,9 @@ read_slot(const struct sxp *head, const char *scope)
             bit = 2;
         else if (symbol(key, "after"))
             bit = 4;
-        else if (symbol(key, "consumes"))
+        else if (symbol(key, "subscribes"))
             bit = 8;
-        else if (symbol(key, "produces"))
+        else if (symbol(key, "publishes"))
             bit = 16;
         else if (symbol(key, "callbacks"))
             bit = 32;
@@ -1020,7 +1020,7 @@ prepare_slots(void)
 }
 
 static void
-resolve_routes(struct subscription *routes, size_t count, bool produces)
+resolve_routes(struct subscription *routes, size_t count, bool publishes)
 {
     for (size_t i = 0; i < count; i++) {
         struct subscription *r   = &routes[i];
@@ -1034,7 +1034,7 @@ resolve_routes(struct subscription *routes, size_t count, bool produces)
         r->event     = event->id;
         r->slot      = slots[owner].number;
         r->callbacks = callbacks_allowed(r->slot_name);
-        if (!produces)
+        if (!publishes)
             snprintf(r->handler, sizeof(r->handler), "dice_slot_%d_%d_%d",
                      r->chain, r->event, r->slot);
     }
@@ -1042,7 +1042,7 @@ resolve_routes(struct subscription *routes, size_t count, bool produces)
     for (size_t i = 1; i < count; i++)
         if (!sub_compare(&routes[i - 1], &routes[i]))
             fail("duplicate %s for slot %d, chain %d, event %d",
-                 produces ? "production" : "consumption", routes[i].slot,
+                 publishes ? "publication" : "subscription", routes[i].slot,
                  routes[i].chain, routes[i].event);
 }
 
@@ -1144,7 +1144,7 @@ resolve(void)
         hash = hash_string(hash, entry);
     }
     for (size_t i = 0; i < nprods; i++) {
-        snprintf(entry, sizeof(entry), "produces:%d:%d:%d", prods[i].chain,
+        snprintf(entry, sizeof(entry), "publishes:%d:%d:%d", prods[i].chain,
                  prods[i].event, prods[i].slot);
         hash = hash_string(hash, entry);
     }
@@ -1270,7 +1270,7 @@ emit_chain_body(FILE *out, int chain, bool remaining)
 }
 
 static bool
-consumes_event(int chain, int event)
+subscribes_event(int chain, int event)
 {
     for (size_t i = 0; i < nsubs; i++)
         if (subs[i].chain == chain &&
@@ -1283,7 +1283,7 @@ static bool
 priority_event_used(int event)
 {
     for (size_t i = 0; i < chain_priority.count; i++)
-        if (consumes_event(chain_priority.ids[i], event))
+        if (subscribes_event(chain_priority.ids[i], event))
             return true;
     return false;
 }
@@ -1298,7 +1298,7 @@ emit_priority_events(FILE *out, int chain)
             chain);
     for (size_t e = 0; e < event_priority.count; e++) {
         int event = event_priority.ids[e];
-        if (!consumes_event(chain, event))
+        if (!subscribes_event(chain, event))
             continue;
         fprintf(out, "    if (likely(type == %d)) {\n", event);
         emit_sequence(out, chain, event);
@@ -1320,7 +1320,7 @@ emit_event_dispatch(FILE *out, int event)
             event, event);
     for (size_t i = 0; i < chain_priority.count; i++) {
         int chain = chain_priority.ids[i];
-        if (!consumes_event(chain, event))
+        if (!subscribes_event(chain, event))
             continue;
         fprintf(out, "    if (likely(chain == %d)) {\n", chain);
         emit_sequence(out, chain, event);
@@ -1435,14 +1435,14 @@ static void
 emit_route_checks(FILE *out)
 {
     fputs("#if DICE_CHECK_ROUTES\n", out);
-    for (int produces = 0; produces < 2; produces++) {
+    for (int publishes = 0; publishes < 2; publishes++) {
         fprintf(out,
                 "DICE_HIDE bool dice_%s_allowed_(int slot, chain_id chain, "
                 "type_id type)\n{\n"
                 "    (void)slot; (void)chain; (void)type;\n    return ",
-                produces ? "produces" : "consumes");
-        emit_route_expression(out, produces ? prods : subs,
-                              produces ? nprods : nsubs, "slot", "chain",
+                publishes ? "publishes" : "subscribes");
+        emit_route_expression(out, publishes ? prods : subs,
+                              publishes ? nprods : nsubs, "slot", "chain",
                               "type");
         fputs(";\n}\n", out);
     }
@@ -1505,9 +1505,10 @@ emit_header(FILE *out)
                 slots[i].inline_handler ? "DICE_INLINE_HANDLER_" : "");
     }
     for (size_t i = 0; i < nsubs; i++)
-        fprintf(out, "#define dice_consumes_%d_%d_%d 1\n", subs[i].chain,
+        fprintf(out, "#define dice_subscribes_%d_%d_%d 1\n", subs[i].chain,
                 subs[i].event, subs[i].slot);
-    fputs("#if DICE_CHECK_ROUTES\n#define DICE_ROUTE_CONSUMES(S, C, E) ", out);
+    fputs("#if DICE_CHECK_ROUTES\n#define DICE_ROUTE_SUBSCRIBES(S, C, E) ",
+          out);
     emit_route_expression(out, subs, nsubs, "S", "C", "E");
     fputs("\n#endif\n", out);
     int max_event = 127, max_chain = 6;
@@ -2063,10 +2064,10 @@ main(int argc, char **argv)
                    callbacks_allowed(slots[i].name) ? "true" : "false",
                    slots[i].inline_handler ? " option inline" : "");
         for (size_t i = 0; i < nsubs; i++)
-            printf("consumes %s %d/%d\n", subs[i].slot_name, subs[i].chain,
+            printf("subscribes %s %d/%d\n", subs[i].slot_name, subs[i].chain,
                    subs[i].event);
         for (size_t i = 0; i < nprods; i++)
-            printf("produces %s %d/%d\n", prods[i].slot_name, prods[i].chain,
+            printf("publishes %s %d/%d\n", prods[i].slot_name, prods[i].chain,
                    prods[i].event);
     } else if (mode == GRAPH) {
         puts("digraph dice {");
