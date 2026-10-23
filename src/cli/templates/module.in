@@ -24,6 +24,16 @@ int dice_subscribe_abi(const char *configuration, chain_id chain, type_id type,
 #define DICE_ROLL_JOIN(A, B) DICE_ROLL_JOIN_(A, B)
 #define DICE_ROLL_LOCAL(NAME) DICE_ROLL_JOIN(NAME, DICE_MODULE_SLOT)
 #define DICE_SLOT_HANDLER(C, E, S) V_JOIN(V_JOIN(V_JOIN(dice_slot, C), E), S)
+#define DICE_SLOT_ATTRIBUTES(S) DICE_ROLL_JOIN(DICE_SLOT_ATTRIBUTES_, S)
+#define DICE_HANDLER_ATTRIBUTES(S) DICE_ROLL_JOIN(DICE_HANDLER_ATTRIBUTES_, S)
+#define DICE_INLINE_SLOT_ inline __attribute__((always_inline))
+/* Clang must fold publication selection before forcing the linked wrapper.
+ * GCC otherwise leaves this private body behind as another out-of-line call. */
+#if defined(__clang__)
+#define DICE_INLINE_HANDLER_
+#else
+#define DICE_INLINE_HANDLER_ __attribute__((always_inline))
+#endif
 #define DICE_SLOT_BOUND(C, E, S) V_JOIN(V_JOIN(V_JOIN(dice_bound, C), E), S)
 #define DICE_CONSUMES(C, E, S) V_JOIN(V_JOIN(V_JOIN(dice_consumes, C), E), S)
 
@@ -81,11 +91,15 @@ static void DICE_CTOR dice_validate_header_(void)
 #endif
 
 #if !defined(DICE_PLUGIN_MODULE) && (defined(DICE_DISPATCH_MODULE) || DICE_ROLL_JOIN(DICE_STATIC_SLOT_, DICE_MODULE_SLOT))
+/* The generated non-inline prototypes keep opted-in C inline wrappers as
+ * strong external definitions, including in builds without LTO. */
 #define PS_SUBSCRIBE_SLOT(CHAIN, TYPE, SLOT, ...) \
     STATIC_ASSERT(DICE_CONSUMES(CHAIN, TYPE, SLOT), "undeclared slot consumption"); \
     DICE_BIND_SLOT(CHAIN, TYPE, SLOT) \
+    static inline DICE_HANDLER_ATTRIBUTES(SLOT) enum ps_err PS_HANDLER(CHAIN, TYPE, SLOT)( \
+        chain_id, type_id, void *, struct metadata *); \
     PS_HANDLER_DEF(CHAIN, TYPE, SLOT, DICE_ROUTE_CONTEXT(SLOT) __VA_ARGS__) \
-    DICE_HIDE enum ps_err DICE_SLOT_HANDLER(CHAIN, TYPE, SLOT)( \
+    DICE_HIDE DICE_SLOT_ATTRIBUTES(SLOT) enum ps_err DICE_SLOT_HANDLER(CHAIN, TYPE, SLOT)( \
         chain_id chain, type_id type, void *event, struct metadata *md) \
     { return PS_HANDLER(CHAIN, TYPE, SLOT)(chain, type, event, md); }
 #define DICE_ROLL_CONSTRUCTOR()

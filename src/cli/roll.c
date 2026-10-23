@@ -471,6 +471,8 @@ read_slot(const struct sxp *head, const char *scope)
             bit = 32;
         else if (symbol(key, "require"))
             bit = 64;
+        else if (symbol(key, "option"))
+            bit = 128;
         else
             fail("line %u: unknown slot field %s", key->line, key->text);
         if (seen & bit)
@@ -484,7 +486,13 @@ read_slot(const struct sxp *head, const char *scope)
             read_callbacks(key, name);
         else if (bit == 64)
             read_require(key, scope);
-        else {
+        else if (bit == 128) {
+            const struct sxp *option = single(key);
+            if (!symbol(option, "inline"))
+                fail("line %u: unknown slot option %s", option->line,
+                     atom(option));
+            slots[index].inline_handler = true;
+        } else {
             if (!key->next)
                 fail("line %u: empty ordering constraint", key->line);
             for (const struct sxp *ref = key->next; ref; ref = ref->next) {
@@ -1113,7 +1121,8 @@ resolve(void)
                     fail("duplicate prioritized %s: %s", kind, p->names[i]);
         }
     }
-    /* Priority only changes code layout, not the runtime/plugin ABI. */
+    /* Priorities and slot inlining change code shape, not the runtime/plugin
+     * ABI. */
     uint64_t hash = UINT64_C(14695981039346656037);
     for (size_t i = 0; i < COUNT(sources); i++)
         hash = hash_string(hash, source_text(sources[i].name));
@@ -1490,6 +1499,10 @@ emit_header(FILE *out)
         macro_name(name, slots[i].name);
         fprintf(out, "#define SLOT_%s %d\n", name, slots[i].number);
         fprintf(out, "#define DICE_STATIC_SLOT_%d 1\n", slots[i].number);
+        fprintf(out, "#define DICE_SLOT_ATTRIBUTES_%d %s\n", slots[i].number,
+                slots[i].inline_handler ? "DICE_INLINE_SLOT_" : "");
+        fprintf(out, "#define DICE_HANDLER_ATTRIBUTES_%d %s\n", slots[i].number,
+                slots[i].inline_handler ? "DICE_INLINE_HANDLER_" : "");
     }
     for (size_t i = 0; i < nsubs; i++)
         fprintf(out, "#define dice_consumes_%d_%d_%d 1\n", subs[i].chain,
@@ -1549,17 +1562,11 @@ emit_header(FILE *out)
     fputs(
         "    default: return PS_OK;\n    }\n}\n"
         "DICE_HIDE bool ps_initd_(void);\n"
-        "#if defined(__clang__)\n"
         "DICE_HIDE extern bool ready_;\n"
-        "#endif\n"
         "static inline __attribute__((always_inline)) enum ps_err\n"
         "dice_publish_inline_(chain_id chain, type_id type, void *event, "
         "struct metadata *md)\n{\n"
-        "#if defined(__clang__)\n"
         "    if (unlikely(!ready_) && !ps_initd_())\n"
-        "#else\n"
-        "    if (unlikely(!ps_initd_()))\n"
-        "#endif\n"
         "        return PS_STOP_CHAIN;\n"
         "    log_debug(\"Dispatch %s/%s\", ps_chain_str(chain), "
         "ps_type_str(type));\n"
@@ -2051,9 +2058,10 @@ main(int argc, char **argv)
             printf("%s %s %d\n", ids[i].chain ? "chain" : "event", ids[i].name,
                    ids[i].id);
         for (size_t i = 0; i < nslots; i++)
-            printf("slot %s %d%s callbacks %s\n", slots[i].name,
+            printf("slot %s %d%s callbacks %s%s\n", slots[i].name,
                    slots[i].number, slots[i].forced >= 0 ? " forced" : "",
-                   callbacks_allowed(slots[i].name) ? "true" : "false");
+                   callbacks_allowed(slots[i].name) ? "true" : "false",
+                   slots[i].inline_handler ? " option inline" : "");
         for (size_t i = 0; i < nsubs; i++)
             printf("consumes %s %d/%d\n", subs[i].slot_name, subs[i].chain,
                    subs[i].event);

@@ -474,6 +474,26 @@ numbers that cannot satisfy the order abort generation without replacing existin
 output. Event flows do not imply ordering constraints; only `before` and `after`
 do. Ordering applies when handlers share a dispatched chain and event.
 
+Slots can request inlining of their linked C handlers:
+
+```scheme
+(slot observer
+  (option inline)
+  (consumes (CAPTURE_EVENT EVENT_MA_READ EVENT_MA_WRITE)))
+```
+
+`(option inline)` requests inlining of the generated `dice_slot_*` wrappers.
+The generator also annotates the private handler bodies where needed by the
+compiler. It still emits strong external definitions, so calls without LTO,
+function pointers, and duplicate-handler checks retain their normal behavior.
+Cross-source inlining requires an optimized LTO build. The option applies only
+to linked handlers; registered callbacks and their generated fallbacks retain
+compiler-controlled inlining. Without the option, linked handlers also remain
+under compiler control. It changes neither
+routes nor the runtime/plugin ABI. `--query` shows slots that request inlining.
+Use the bare symbol `inline`; Lisp quotation is not part of the configuration
+syntax. The built-in `dice/self` slot enables this option.
+
 Implement the configured consumers in C files including the generated `dice.h`.
 Select the slot using its generated macro before including the header:
 

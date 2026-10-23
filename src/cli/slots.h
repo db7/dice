@@ -7,6 +7,7 @@
 struct slot {
     char name[NAME_SIZE];
     int forced, number;
+    bool inline_handler;
 };
 int slots_resolve(struct slot *slots, size_t count,
                   bool edges[SLOT_LIMIT][SLOT_LIMIT], char *error, size_t size);
